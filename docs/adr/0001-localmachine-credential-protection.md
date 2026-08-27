@@ -1,0 +1,3 @@
+# Use DPAPI LocalMachine credential protection
+
+The trigger stores its API client configuration under `%ProgramData%` encrypted with DPAPI LocalMachine. Access is restricted by ACL to `SYSTEM` and the Configuration administrator, which performs setup, reset, and runtime invocation. This was chosen over DPAPI CurrentUser because the deployment contract uses one administrator-owned server configuration and needs elevated recovery; it makes Administrator access a deployment prerequisite. LocalMachine encryption is not bound to that administrator: the ACL is the effective confidentiality boundary, so any account granted read access can decrypt the configuration.
