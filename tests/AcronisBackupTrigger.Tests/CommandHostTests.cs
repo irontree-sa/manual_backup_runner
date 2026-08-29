@@ -123,6 +123,36 @@ public sealed class CommandHostTests : IDisposable
         Assert.Equal(ExitCodes.ConfigurationUnreadable, exit);
         Assert.Contains("Run setup", error.ToString());
     }
+    [Theory]
+    [InlineData("setup")]
+    [InlineData("reset")]
+    [InlineData("select-target")]
+    [InlineData("clear-pending")]
+    public async Task State_changing_commands_require_an_elevated_administrator(string command)
+    {
+        var store = new ConfigurationStore(directory, new DeniedProtector());
+        Directory.CreateDirectory(directory);
+        File.WriteAllBytes(Path.Combine(directory, "configuration.dat"), [1, 2, 3]);
+
+        var host = new CommandHost(
+            store,
+            () => throw new InvalidOperationException("transport must not be constructed"),
+            new StringReader(""),
+            output,
+            error,
+            () => throw new InvalidOperationException("secret must not be read"),
+            administratorGate: new DeniedAdministratorGate());
+
+        var exit = await host.RunAsync([command]);
+
+        Assert.Equal(ExitCodes.AdministratorRequired, exit);
+        Assert.Contains("elevated Administrator", error.ToString());
+    }
+
+    private sealed class DeniedAdministratorGate : IAdministratorGate
+    {
+        public bool IsElevated => false;
+    }
 
     private ConfigurationStore Store() => new(directory, new ReversingProtector());
 

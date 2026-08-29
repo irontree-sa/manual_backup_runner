@@ -170,6 +170,23 @@ public sealed class HttpAcronisTransportTests
         Assert.Equal(3, handler.Attempts);
         Assert.Equal([TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(4)], delays);
     }
+    [Fact]
+    public async Task GetExecutionState_maps_acronis_unavailability_to_connectivity_not_rejection()
+    {
+        var handler = new StubHandler(attempt => attempt == 1
+            ? TokenResponse()
+            : new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        using var client = new HttpClient(handler);
+        var delays = new List<TimeSpan>();
+
+        var state = await Transport(client, delays).GetExecutionStateAsync(
+            Config, "policy-1", "resource-1", CancellationToken.None);
+
+        Assert.Equal(ExecutionState.ConnectivityFailed, state);
+        Assert.Equal(6, handler.Attempts);
+        Assert.Equal(4, delays.Count);
+    }
+
 
     private static HttpAcronisTransport Transport(HttpClient client, List<TimeSpan>? delays = null) =>
         new(client, (duration, _) =>
