@@ -142,12 +142,11 @@ public sealed class RotatingLogTests : IDisposable
         Assert.True(File.Exists(Path.Combine(directory, "trigger.log")),
             "a throwing hook must not prevent the audit line from being written");
 
-        var stopwatch = Stopwatch.StartNew();
-        log.Write("run: exit=0 outcome=ObservedRunning");
-        stopwatch.Stop();
-
-        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5),
-            $"a stranded lock made the second Write block for {stopwatch.Elapsed}");
+        // The lock must have been released despite the throwing hook: acquire it
+        // immediately (zero timeout) and release it in finally.
+        Assert.True(semaphore.WaitOne(0),
+            "a stranded lock prevented immediate reacquisition after a throwing hook");
+        semaphore.Release();
     }
 
     public void Dispose()
