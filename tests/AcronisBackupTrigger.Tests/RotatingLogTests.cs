@@ -99,6 +99,20 @@ public sealed class RotatingLogTests : IDisposable
             "a wrapped lock-creation failure must skip the write, not throw");
     }
 
+    [Fact]
+    public void Write_skips_the_audit_line_when_named_semaphore_cannot_be_opened()
+    {
+        // A named semaphore whose name collides with an existing kernel object of a
+        // different type surfaces as WaitHandleCannotBeOpenedException; the lazy
+        // factory must treat it as a skipped audit line, not a crash.
+        var log = new RotatingLog(directory, lockFactory: () => throw new WaitHandleCannotBeOpenedException("type mismatch"));
+
+        log.Write("run: exit=0 outcome=ObservedRunning");
+
+        Assert.False(File.Exists(Path.Combine(directory, "trigger.log")),
+            "a named semaphore that cannot be opened must skip the write, not throw");
+    }
+
     public void Dispose()
     {
         logLock.Dispose();

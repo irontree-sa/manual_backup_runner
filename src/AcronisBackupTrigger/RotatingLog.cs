@@ -49,7 +49,8 @@ public sealed class RotatingLog(
         catch (Exception ex) when (ex is IOException
             or UnauthorizedAccessException
             or PlatformNotSupportedException
-            or TypeInitializationException)
+            or TypeInitializationException
+            or WaitHandleCannotBeOpenedException)
         {
             // Best-effort: a platform that cannot provide the named lock, or a lock
             // that is unavailable, must never change the command result.
@@ -89,7 +90,16 @@ public sealed class RotatingLog(
         }
         finally
         {
-            logLock.Release();
+            try
+            {
+                logLock.Release();
+            }
+            catch (Exception ex) when (ex is IOException
+                or UnauthorizedAccessException
+                or SemaphoreFullException)
+            {
+                // Best-effort: a release failure must never change the command result.
+            }
         }
     }
 
