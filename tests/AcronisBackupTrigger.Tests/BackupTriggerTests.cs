@@ -173,7 +173,7 @@ public sealed class BackupTriggerTests
     }
 
     [Fact]
-    public async Task An_accepted_but_unobserved_start_keeps_the_outstanding_marker()
+    public async Task An_accepted_but_unobserved_start_does_not_block_later_runs()
     {
         var pending = new RecordingPendingStore();
         var transport = new ScriptedTransport { States = [ExecutionState.Idle], Start = StartOutcome.Accepted };
@@ -182,7 +182,7 @@ public sealed class BackupTriggerTests
             .RunAsync(Configured, CancellationToken.None);
 
         Assert.Equal(TriggerOutcome.AcceptedNotObserved, result.Outcome);
-        Assert.NotNull(pending.Marked);
+        Assert.Null(pending.Marked);
     }
 
     private sealed class RecordingPendingStore : IPendingStartStore

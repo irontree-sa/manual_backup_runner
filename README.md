@@ -95,18 +95,23 @@ or a bounded failure. One invocation is capped at 90 seconds.
 | 9 | Acronis discovery failed; the printed status says why. |
 | 10 | The selection offered was not chosen, or the policy has no attached resource. |
 | 11 | The policy is already running, or another run holds the machine lock. |
-| 12 | Acronis accepted the request but running was not observed in the window. |
+| 12 | Acronis accepted the request but running was not observed in the window. Later runs are not blocked. |
 | 13 | Acronis rejected the request. |
-| 14 | The start request outcome is unknown. Check the console, then `clear-pending`. |
+| 14 | The start request outcome is unknown. **Every later run returns 19 and starts nothing until an administrator runs `clear-pending`.** Check the console first. |
 | 15 | Acronis rejected the API client credentials. |
 | 16 | Acronis could not be reached. |
 | 17 | Unknown command. |
-| 18 | The invocation exceeded its 90 second budget. |
+| 18 | The invocation exceeded its 90 second budget. Applies to unattended runs; `setup` and `select-target` are not time limited. |
 | 19 | A previous start request is still outstanding. Run `clear-pending`. |
 | 20 | Acronis returned an unrecognised response. |
 
-Codes 12, 14, and 19 mean a backup may be running: check the Acronis console rather
-than re-running the trigger.
+Codes 12, 14, 18, and 19 mean a backup may already be running: check the Acronis
+console rather than re-running the trigger.
+
+Exit 14 latches: the trigger records the ambiguous request and every later run returns
+19 without starting anything until an administrator confirms the console state and runs
+`clear-pending`. That is deliberate — it prevents a duplicate backup — but an unattended
+post-backup hook stays blocked until someone intervenes, so alert on 14 and 19.
 
 ## Logs
 

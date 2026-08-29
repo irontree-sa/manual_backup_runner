@@ -157,10 +157,13 @@ public sealed class HttpAcronisTransport(
         }
     }
 
-    /// <summary>True only for failures that prove the request never left this machine.</summary>
+    /// <summary>
+    /// True only for failures that prove the request never left this machine.
+    /// `ConnectionError` is deliberately excluded: a connection can fail after the
+    /// request bytes were written, so retrying it could start a second backup.
+    /// </summary>
     private static bool IsProvablyPreSend(HttpRequestException exception) => exception.HttpRequestError is
         HttpRequestError.NameResolutionError or
-        HttpRequestError.ConnectionError or
         HttpRequestError.SecureConnectionError or
         HttpRequestError.ProxyTunnelError;
 

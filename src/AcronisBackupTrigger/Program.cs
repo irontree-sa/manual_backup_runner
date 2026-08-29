@@ -31,30 +31,42 @@ if (!machineLock.WaitOne(TimeSpan.FromSeconds(20)))
     return ExitCodes.AlreadyRunning;
 }
 
+// Interactive administration waits on a human, so only the unattended commands
+// carry the invocation budget.
+var interactive = args.FirstOrDefault()?.ToLowerInvariant() is "setup" or "select-target";
+
 try
 {
-    var remaining = totalBudget - invocation.Elapsed;
-    if (remaining <= TimeSpan.Zero)
+    CancellationTokenSource? budget = null;
+    if (!interactive)
     {
-        Console.Error.WriteLine("The run exceeded its time budget before starting. Nothing was requested.");
-        log.Write("run: budget exhausted before dispatch");
-        return ExitCodes.TotalTimeout;
+        var remaining = totalBudget - invocation.Elapsed;
+        if (remaining <= TimeSpan.Zero)
+        {
+            Console.Error.WriteLine("The run exceeded its time budget before starting. Nothing was requested.");
+            log.Write("run: budget exhausted before dispatch");
+            return ExitCodes.TotalTimeout;
+        }
+
+        budget = new CancellationTokenSource(remaining);
     }
 
-    using var budget = new CancellationTokenSource(remaining);
-    using var client = new HttpClient();
+    using (budget)
+    {
+        using var client = new HttpClient();
 
-    var host = new CommandHost(
-        new ConfigurationStore(directory, new WindowsDpapiProtector()),
-        () => new HttpAcronisTransport(client),
-        Console.In,
-        Console.Out,
-        Console.Error,
-        ReadSecret,
-        log: log.Write,
-        pendingStarts: pendingStarts);
+        var host = new CommandHost(
+            new ConfigurationStore(directory, new WindowsDpapiProtector()),
+            () => new HttpAcronisTransport(client),
+            Console.In,
+            Console.Out,
+            Console.Error,
+            ReadSecret,
+            log: log.Write,
+            pendingStarts: pendingStarts);
 
-    return await host.RunAsync(args, budget.Token);
+        return await host.RunAsync(args, budget?.Token ?? CancellationToken.None);
+    }
 }
 finally
 {

@@ -171,11 +171,13 @@ public sealed class BackupTrigger(
             }
         }
 
-        // The start was accepted, so the marker stays: a later invocation must not
-        // assume it is safe to start again just because status has not caught up.
+        // Acronis confirmed acceptance, so the request is not ambiguous: clear the
+        // marker. Blocking every later invocation here would silently stop backups on
+        // an unattended hook, and the already-running guard still prevents an overlap.
+        pendingStarts.Clear();
         return new TriggerResult(
             TriggerOutcome.AcceptedNotObserved,
-            $"Acronis accepted the request, but {configuration.PolicyName} was not observed running within {window.TotalSeconds:0} seconds. Check the Acronis console, then run clear-pending.");
+            $"Acronis accepted the request, but {configuration.PolicyName} was not observed running within {window.TotalSeconds:0} seconds. Check the Acronis console.");
     }
 
     private static Func<TimeSpan> StopwatchElapsed()
