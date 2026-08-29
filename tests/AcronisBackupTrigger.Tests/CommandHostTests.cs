@@ -22,10 +22,12 @@ public sealed class CommandHostTests : IDisposable
     {
         var store = Store();
 
-        var exit = await Host(["https://eu2.acronis.cloud", "client-id"], store).RunAsync(["setup"]);
+        var exit = await Host(["https://eu2.acronis.cloud", "client-id", "1", "1"], store).RunAsync(["setup"]);
 
         Assert.Equal(ExitCodes.Success, exit);
-        Assert.Equal(new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "typed-secret"), store.Load());
+        Assert.Equal(
+            new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "typed-secret", "policy-1", "Daily", "resource-1", "SERVER-01"),
+            store.Load());
         Assert.DoesNotContain("typed-secret", output.ToString());
         Assert.DoesNotContain("typed-secret", error.ToString());
     }
@@ -51,10 +53,12 @@ public sealed class CommandHostTests : IDisposable
         var store = Store();
         store.Save(new TriggerConfiguration("https://eu2.acronis.cloud", "original-id", "original-secret"));
 
-        var exit = await Host(["REPLACE", "https://us5.acronis.cloud", "new-id"], store).RunAsync(["setup"]);
+        var exit = await Host(["REPLACE", "https://us5.acronis.cloud", "new-id", "1", "1"], store).RunAsync(["setup"]);
 
         Assert.Equal(ExitCodes.Success, exit);
-        Assert.Equal(new TriggerConfiguration("https://us5.acronis.cloud", "new-id", "typed-secret"), store.Load());
+        Assert.Equal(
+            new TriggerConfiguration("https://us5.acronis.cloud", "new-id", "typed-secret", "policy-1", "Daily", "resource-1", "SERVER-01"),
+            store.Load());
     }
 
     [Fact]
@@ -124,7 +128,11 @@ public sealed class CommandHostTests : IDisposable
 
     private CommandHost Host(string[] lines, ConfigurationStore store, TokenResult transportResult = TokenResult.Authenticated) =>
         new(store,
-            () => new FixedTransport(transportResult),
+            () => new FakeAcronisTransport(transportResult)
+            {
+                Policies = new(DiscoveryStatus.Succeeded, [new AcronisPolicy("policy-1", "Daily")]),
+                Resources = new(DiscoveryStatus.Succeeded, [new AcronisResource("resource-1", "SERVER-01")]),
+            },
             new StringReader(string.Join(Environment.NewLine, lines)),
             output,
             error,
@@ -137,11 +145,7 @@ public sealed class CommandHostTests : IDisposable
         if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
     }
 
-    private sealed class FixedTransport(TokenResult result) : IAcronisTransport
-    {
-        public Task<TokenResult> RequestTokenAsync(TriggerConfiguration configuration, CancellationToken cancellationToken) =>
-            Task.FromResult(result);
-    }
+
 
     private sealed class ReversingProtector : ISecretProtector
     {

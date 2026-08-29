@@ -13,6 +13,15 @@ public enum TokenResult
 public interface IAcronisTransport
 {
     Task<TokenResult> RequestTokenAsync(TriggerConfiguration configuration, CancellationToken cancellationToken);
+
+    Task<DiscoveryResult<AcronisPolicy>> ListProtectionPoliciesAsync(
+        TriggerConfiguration configuration,
+        CancellationToken cancellationToken);
+
+    Task<DiscoveryResult<AcronisResource>> ListResourcesAsync(
+        TriggerConfiguration configuration,
+        string policyId,
+        CancellationToken cancellationToken);
 }
 
 public enum DiagnosticOutcome

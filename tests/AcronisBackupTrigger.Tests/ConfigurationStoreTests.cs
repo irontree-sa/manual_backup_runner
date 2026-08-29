@@ -44,29 +44,18 @@ public sealed class ConfigurationStoreTests : IDisposable
 
 public sealed class DiagnosticsTests
 {
-    [Fact]
-    public async Task Diagnose_returns_authenticated_when_transport_issues_token()
-    {
-        var diagnostics = new Diagnostics(new TokenTransport(TokenResult.Authenticated));
-
-        var result = await diagnostics.CheckAsync(new TriggerConfiguration("https://eu2.acronis.cloud", "client", "secret"));
-
-        Assert.Equal(DiagnosticOutcome.Authenticated, result.Outcome);
-    }
-
-    private sealed class TokenTransport(TokenResult result) : IAcronisTransport
-    {
-        public Task<TokenResult> RequestTokenAsync(TriggerConfiguration configuration, CancellationToken cancellationToken) =>
-            Task.FromResult(result);
-    }
+    private static readonly TriggerConfiguration Config = new("https://eu2.acronis.cloud", "client", "secret");
 
     [Theory]
+    [InlineData(TokenResult.Authenticated, DiagnosticOutcome.Authenticated)]
     [InlineData(TokenResult.AuthenticationFailed, DiagnosticOutcome.AuthenticationFailed)]
     [InlineData(TokenResult.ConnectivityFailed, DiagnosticOutcome.ConnectivityFailed)]
-    public async Task Diagnose_maps_transport_failure(TokenResult transportResult, DiagnosticOutcome expected)
+    [InlineData(TokenResult.InvalidDataCenterUrl, DiagnosticOutcome.InvalidDataCenterUrl)]
+    [InlineData(TokenResult.AcronisUnavailable, DiagnosticOutcome.AcronisUnavailable)]
+    [InlineData(TokenResult.UnexpectedResponse, DiagnosticOutcome.UnexpectedResponse)]
+    public async Task Diagnose_reports_each_transport_outcome_distinctly(TokenResult transportResult, DiagnosticOutcome expected)
     {
-        var result = await new Diagnostics(new TokenTransport(transportResult))
-            .CheckAsync(new TriggerConfiguration("https://eu2.acronis.cloud", "client", "secret"));
+        var result = await new Diagnostics(new FakeAcronisTransport(transportResult)).CheckAsync(Config);
 
         Assert.Equal(expected, result.Outcome);
     }

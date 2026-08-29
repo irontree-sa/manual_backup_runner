@@ -6,7 +6,14 @@ using System.Text.Json;
 
 namespace AcronisBackupTrigger;
 
-public sealed record TriggerConfiguration(string DataCenterUrl, string ClientId, string ClientSecret);
+public sealed record TriggerConfiguration(
+    string DataCenterUrl,
+    string ClientId,
+    string ClientSecret,
+    string? PolicyId = null,
+    string? PolicyName = null,
+    string? ResourceId = null,
+    string? ResourceName = null);
 
 public interface ISecretProtector
 {
@@ -35,13 +42,31 @@ public sealed class ConfigurationStore(string directory, ISecretProtector protec
         if (OperatingSystem.IsWindows()) Restrict(new DirectoryInfo(directory));
 
         var plaintext = JsonSerializer.SerializeToUtf8Bytes(configuration);
+        byte[] ciphertext;
         try
         {
-            File.WriteAllBytes(path, protector.Protect(plaintext));
+            ciphertext = protector.Protect(plaintext);
         }
         finally
         {
             CryptographicOperations.ZeroMemory(plaintext);
+        }
+
+        // Write beside the target and swap, so an interrupted save never destroys
+        // the only copy of the API client credentials.
+        var staging = path + ".new";
+        try
+        {
+            File.WriteAllBytes(staging, ciphertext);
+            if (OperatingSystem.IsWindows()) Restrict(new FileInfo(staging));
+
+            if (File.Exists(path)) File.Replace(staging, path, null);
+            else File.Move(staging, path);
+        }
+        catch
+        {
+            if (File.Exists(staging)) File.Delete(staging);
+            throw;
         }
 
         if (OperatingSystem.IsWindows()) Restrict(new FileInfo(path));

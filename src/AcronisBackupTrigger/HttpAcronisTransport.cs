@@ -9,6 +9,11 @@ public sealed class HttpAcronisTransport(
     HttpClient client,
     Func<TimeSpan, CancellationToken, Task>? delayOverride = null) : IAcronisTransport
 {
+    private const string RootPolicyType = "policy.protection.total";
+
+    /// <summary>Guards against a server that keeps returning a continuation cursor.</summary>
+    private const int MaxPages = 50;
+
     private readonly Func<TimeSpan, CancellationToken, Task> delay =
         delayOverride ?? ((duration, token) => Task.Delay(duration, token));
 
@@ -20,18 +25,188 @@ public sealed class HttpAcronisTransport(
         TimeSpan.FromSeconds(16),
     ];
 
-    public async Task<TokenResult> RequestTokenAsync(TriggerConfiguration configuration, CancellationToken cancellationToken)
+    public async Task<TokenResult> RequestTokenAsync(TriggerConfiguration configuration, CancellationToken cancellationToken) =>
+        (await AcquireTokenAsync(configuration, cancellationToken)).Result;
+
+    public Task<DiscoveryResult<AcronisPolicy>> ListProtectionPoliciesAsync(
+        TriggerConfiguration configuration,
+        CancellationToken cancellationToken) =>
+        ListAsync<AcronisPolicy>(configuration, "api/policy_management/v4/policies?parent_ids=", ReadPolicies, cancellationToken);
+
+    public Task<DiscoveryResult<AcronisResource>> ListResourcesAsync(
+        TriggerConfiguration configuration,
+        string policyId,
+        CancellationToken cancellationToken)
     {
-        if (!Uri.TryCreate(configuration.DataCenterUrl, UriKind.Absolute, out var dataCenter)
-            || dataCenter.Scheme != Uri.UriSchemeHttps
-            || !string.IsNullOrEmpty(dataCenter.UserInfo))
+        ArgumentException.ThrowIfNullOrWhiteSpace(policyId);
+        var path = $"api/resource_management/v4/resources?applied_to_policy_id={Uri.EscapeDataString(policyId)}&is_group=false";
+        return ListAsync<AcronisResource>(configuration, path, ReadResources, cancellationToken);
+    }
+
+    private async Task<DiscoveryResult<T>> ListAsync<T>(
+        TriggerConfiguration configuration,
+        string relativePath,
+        Action<JsonElement, List<T>> read,
+        CancellationToken cancellationToken)
+    {
+        if (!TryResolveDataCenter(configuration, out var dataCenter))
+            return DiscoveryResult<T>.Failed(DiscoveryStatus.InvalidDataCenterUrl);
+
+        var (tokenResult, token) = await AcquireTokenAsync(configuration, cancellationToken);
+        if (tokenResult != TokenResult.Authenticated || token is null)
+            return DiscoveryResult<T>.Failed(AsDiscoveryStatus(tokenResult));
+
+        var items = new List<T>();
+        string? cursor = null;
+
+        for (var page = 0; page < MaxPages; page++)
         {
-            return TokenResult.InvalidDataCenterUrl;
+            var path = cursor is null ? relativePath : $"{relativePath}&after={Uri.EscapeDataString(cursor)}";
+            var (status, document) = await GetAsync(new Uri(dataCenter, path), token, cancellationToken);
+            if (status != DiscoveryStatus.Succeeded || document is null)
+                return DiscoveryResult<T>.Failed(status);
+
+            using (document)
+            {
+                try
+                {
+                    read(document.RootElement, items);
+                }
+                catch (InvalidDataException)
+                {
+                    return DiscoveryResult<T>.Failed(DiscoveryStatus.UnexpectedResponse);
+                }
+
+                cursor = NextCursor(document.RootElement);
+            }
+
+            if (cursor is null) return new DiscoveryResult<T>(DiscoveryStatus.Succeeded, items);
         }
 
-        var tokenUri = new Uri(new Uri(dataCenter.GetLeftPart(UriPartial.Path).TrimEnd('/') + "/"), "api/2/idp/token");
-        var credentials = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{configuration.ClientId}:{configuration.ClientSecret}"));
+        return DiscoveryResult<T>.Failed(DiscoveryStatus.UnexpectedResponse);
+    }
 
+    private async Task<(DiscoveryStatus Status, JsonDocument? Document)> GetAsync(
+        Uri uri,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        var lastStatus = DiscoveryStatus.ConnectivityFailed;
+
+        for (var attempt = 0; ; attempt++)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            try
+            {
+                using var response = await client.SendAsync(request, cancellationToken);
+
+                if (response.StatusCode == HttpStatusCode.OK)
+                {
+                    try
+                    {
+                        await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
+                        return (DiscoveryStatus.Succeeded, await JsonDocument.ParseAsync(body, cancellationToken: cancellationToken));
+                    }
+                    catch (JsonException)
+                    {
+                        return (DiscoveryStatus.UnexpectedResponse, null);
+                    }
+                }
+
+                if (!IsTransient(response.StatusCode)) return (ClassifyDiscovery(response.StatusCode), null);
+                lastStatus = DiscoveryStatus.AcronisUnavailable;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                lastStatus = DiscoveryStatus.ConnectivityFailed;
+            }
+            catch (HttpRequestException exception) when (IsTransient(exception))
+            {
+                lastStatus = DiscoveryStatus.ConnectivityFailed;
+            }
+            catch (HttpRequestException)
+            {
+                return (DiscoveryStatus.ConnectivityFailed, null);
+            }
+
+            if (attempt >= Backoff.Length) return (lastStatus, null);
+            await delay(Backoff[attempt], cancellationToken);
+        }
+    }
+
+    /// <summary>Returns the continuation cursor, or null when this is the final page.</summary>
+    private static string? NextCursor(JsonElement root)
+    {
+        if (!root.TryGetProperty("paging", out var paging) || paging.ValueKind != JsonValueKind.Object) return null;
+        if (!paging.TryGetProperty("cursors", out var cursors) || cursors.ValueKind != JsonValueKind.Object) return null;
+
+        var after = Text(cursors, "after");
+        return string.IsNullOrWhiteSpace(after) ? null : after;
+    }
+
+    private static JsonElement RequireItems(JsonElement root)
+    {
+        if (!root.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("Response does not carry an 'items' array.");
+
+        return items;
+    }
+
+    private static void ReadPolicies(JsonElement root, List<AcronisPolicy> policies)
+    {
+        foreach (var item in RequireItems(root).EnumerateArray())
+        {
+            if (!item.TryGetProperty("policy", out var composite) || composite.ValueKind != JsonValueKind.Array)
+                throw new InvalidDataException("Policy item does not carry a 'policy' array.");
+
+            foreach (var policy in composite.EnumerateArray())
+            {
+                if (Text(policy, "type") != RootPolicyType) continue;
+                if (Text(policy, "id") is not { Length: > 0 } id) continue;
+
+                policies.Add(new AcronisPolicy(id, Text(policy, "name") ?? id));
+            }
+        }
+    }
+
+    private static void ReadResources(JsonElement root, List<AcronisResource> resources)
+    {
+        foreach (var item in RequireItems(root).EnumerateArray())
+        {
+            if (Text(item, "id") is not { Length: > 0 } id) continue;
+
+            // Groups such as "All machines" would fan the policy across every member,
+            // so refuse them even if the server ignores is_group=false.
+            if (item.TryGetProperty("is_group", out var isGroup)
+                && isGroup.ValueKind == JsonValueKind.True)
+            {
+                continue;
+            }
+
+            resources.Add(new AcronisResource(id, Text(item, "user_defined_name") ?? Text(item, "name") ?? id));
+        }
+    }
+
+    private static string? Text(JsonElement element, string property) =>
+        element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
+    private async Task<(TokenResult Result, string? Token)> AcquireTokenAsync(
+        TriggerConfiguration configuration,
+        CancellationToken cancellationToken)
+    {
+        if (!TryResolveDataCenter(configuration, out var dataCenter))
+            return (TokenResult.InvalidDataCenterUrl, null);
+
+        var tokenUri = new Uri(dataCenter, "api/2/idp/token");
+        var credentials = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{configuration.ClientId}:{configuration.ClientSecret}"));
         var lastOutcome = TokenResult.ConnectivityFailed;
 
         for (var attempt = 0; ; attempt++)
@@ -50,7 +225,7 @@ public sealed class HttpAcronisTransport(
                     return await ReadTokenAsync(response, cancellationToken);
 
                 if (!IsTransient(response.StatusCode))
-                    return Classify(response.StatusCode);
+                    return (Classify(response.StatusCode), null);
 
                 lastOutcome = TokenResult.AcronisUnavailable;
             }
@@ -68,31 +243,56 @@ public sealed class HttpAcronisTransport(
             }
             catch (HttpRequestException)
             {
-                return TokenResult.ConnectivityFailed;
+                return (TokenResult.ConnectivityFailed, null);
             }
 
-            if (attempt >= Backoff.Length) return lastOutcome;
+            if (attempt >= Backoff.Length) return (lastOutcome, null);
             await delay(Backoff[attempt], cancellationToken);
         }
     }
 
-    private static async Task<TokenResult> ReadTokenAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    private static bool TryResolveDataCenter(TriggerConfiguration configuration, out Uri dataCenter)
+    {
+        dataCenter = null!;
+        if (!Uri.TryCreate(configuration.DataCenterUrl, UriKind.Absolute, out var parsed)
+            || parsed.Scheme != Uri.UriSchemeHttps
+            || !string.IsNullOrEmpty(parsed.UserInfo))
+        {
+            return false;
+        }
+
+        dataCenter = new Uri(parsed.GetLeftPart(UriPartial.Path).TrimEnd('/') + "/");
+        return true;
+    }
+
+    private static async Task<(TokenResult Result, string? Token)> ReadTokenAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
     {
         try
         {
             await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
             using var document = await JsonDocument.ParseAsync(body, cancellationToken: cancellationToken);
-            return document.RootElement.TryGetProperty("access_token", out var token)
-                   && token.ValueKind == JsonValueKind.String
-                   && !string.IsNullOrWhiteSpace(token.GetString())
-                ? TokenResult.Authenticated
-                : TokenResult.UnexpectedResponse;
+            var token = Text(document.RootElement, "access_token");
+            return string.IsNullOrWhiteSpace(token)
+                ? (TokenResult.UnexpectedResponse, null)
+                : (TokenResult.Authenticated, token);
         }
         catch (JsonException)
         {
-            return TokenResult.UnexpectedResponse;
+            return (TokenResult.UnexpectedResponse, null);
         }
     }
+
+    private static DiscoveryStatus AsDiscoveryStatus(TokenResult result) => result switch
+    {
+        TokenResult.Authenticated => DiscoveryStatus.Succeeded,
+        TokenResult.AuthenticationFailed => DiscoveryStatus.AuthenticationFailed,
+        TokenResult.InvalidDataCenterUrl => DiscoveryStatus.InvalidDataCenterUrl,
+        TokenResult.AcronisUnavailable => DiscoveryStatus.AcronisUnavailable,
+        TokenResult.UnexpectedResponse => DiscoveryStatus.UnexpectedResponse,
+        _ => DiscoveryStatus.ConnectivityFailed,
+    };
 
     private static TokenResult Classify(HttpStatusCode status) => status switch
     {
@@ -100,6 +300,19 @@ public sealed class HttpAcronisTransport(
         HttpStatusCode.NotFound or HttpStatusCode.MovedPermanently or HttpStatusCode.Found
             or HttpStatusCode.MethodNotAllowed => TokenResult.InvalidDataCenterUrl,
         _ => TokenResult.UnexpectedResponse,
+    };
+
+    /// <summary>
+    /// Discovery runs with a valid token, so 403 means the API client lacks the
+    /// required read permission rather than that authentication failed.
+    /// </summary>
+    private static DiscoveryStatus ClassifyDiscovery(HttpStatusCode status) => status switch
+    {
+        HttpStatusCode.Unauthorized => DiscoveryStatus.AuthenticationFailed,
+        HttpStatusCode.Forbidden => DiscoveryStatus.AcronisRejected,
+        HttpStatusCode.NotFound or HttpStatusCode.MovedPermanently or HttpStatusCode.Found
+            or HttpStatusCode.MethodNotAllowed => DiscoveryStatus.InvalidDataCenterUrl,
+        _ => DiscoveryStatus.UnexpectedResponse,
     };
 
     private static bool IsTransient(HttpStatusCode status) =>
