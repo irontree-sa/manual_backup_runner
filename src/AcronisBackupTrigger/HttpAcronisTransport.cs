@@ -43,6 +43,127 @@ public sealed class HttpAcronisTransport(
         return ListAsync<AcronisResource>(configuration, path, ReadResources, cancellationToken);
     }
 
+    public async Task<ExecutionState> GetExecutionStateAsync(
+        TriggerConfiguration configuration,
+        string policyId,
+        string resourceId,
+        CancellationToken cancellationToken)
+    {
+        if (!TryResolveDataCenter(configuration, out var dataCenter)) return ExecutionState.ConnectivityFailed;
+
+        var (tokenResult, token) = await AcquireTokenAsync(configuration, cancellationToken);
+        if (tokenResult != TokenResult.Authenticated || token is null)
+        {
+            return tokenResult switch
+            {
+                TokenResult.AuthenticationFailed => ExecutionState.AuthenticationFailed,
+                TokenResult.UnexpectedResponse => ExecutionState.UnexpectedResponse,
+                TokenResult.AcronisUnavailable => ExecutionState.AcronisRejected,
+                _ => ExecutionState.ConnectivityFailed,
+            };
+        }
+
+        var path = "api/policy_management/v4/applications"
+                   + $"?policy_id={Uri.EscapeDataString(policyId)}"
+                   + $"&context_id={Uri.EscapeDataString(resourceId)}"
+                   + "&execution_state=running";
+
+        var (status, document) = await GetAsync(new Uri(dataCenter, path), token, cancellationToken);
+        if (status != DiscoveryStatus.Succeeded || document is null)
+        {
+            return status switch
+            {
+                DiscoveryStatus.AuthenticationFailed => ExecutionState.AuthenticationFailed,
+                DiscoveryStatus.AcronisRejected or DiscoveryStatus.AcronisUnavailable => ExecutionState.AcronisRejected,
+                DiscoveryStatus.UnexpectedResponse or DiscoveryStatus.InvalidDataCenterUrl => ExecutionState.UnexpectedResponse,
+                _ => ExecutionState.ConnectivityFailed,
+            };
+        }
+
+        using (document)
+        {
+            if (!document.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+                return ExecutionState.UnexpectedResponse;
+
+            return items.GetArrayLength() > 0 ? ExecutionState.Running : ExecutionState.Idle;
+        }
+    }
+
+    public async Task<StartOutcome> StartPolicyAsync(
+        TriggerConfiguration configuration,
+        string policyId,
+        string resourceId,
+        CancellationToken cancellationToken)
+    {
+        if (!TryResolveDataCenter(configuration, out var dataCenter)) return StartOutcome.NotSent;
+
+        var (tokenResult, token) = await AcquireTokenAsync(configuration, cancellationToken);
+        if (tokenResult != TokenResult.Authenticated || token is null)
+        {
+            return tokenResult == TokenResult.AuthenticationFailed
+                ? StartOutcome.AuthenticationFailed
+                : StartOutcome.NotSent;
+        }
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            state = "running",
+            policy_id = policyId,
+            context_ids = new[] { resourceId },
+        });
+        var runUri = new Uri(dataCenter, "api/policy_management/v4/applications/run");
+
+        // Only provably pre-send failures are retried. Once a request may have reached
+        // Acronis the outcome is reported as unknown and never resent.
+        for (var attempt = 0; ; attempt++)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Put, runUri)
+            {
+                Content = new StringContent(payload, Encoding.UTF8, "application/json"),
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            try
+            {
+                using var response = await client.SendAsync(request, cancellationToken);
+                return response.StatusCode switch
+                {
+                    HttpStatusCode.Accepted => StartOutcome.Accepted,
+                    HttpStatusCode.NoContent => StartOutcome.CompletedSynchronously,
+                    HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => StartOutcome.AuthenticationFailed,
+                    HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests => StartOutcome.OutcomeUnknown,
+                    var status when (int)status >= 500 => StartOutcome.OutcomeUnknown,
+                    _ => StartOutcome.Rejected,
+                };
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                // The request may have reached Acronis before the timeout.
+                return StartOutcome.OutcomeUnknown;
+            }
+            catch (HttpRequestException exception) when (IsProvablyPreSend(exception))
+            {
+                if (attempt >= Backoff.Length) return StartOutcome.NotSent;
+                await delay(Backoff[attempt], cancellationToken);
+            }
+            catch (HttpRequestException)
+            {
+                return StartOutcome.OutcomeUnknown;
+            }
+        }
+    }
+
+    /// <summary>True only for failures that prove the request never left this machine.</summary>
+    private static bool IsProvablyPreSend(HttpRequestException exception) => exception.HttpRequestError is
+        HttpRequestError.NameResolutionError or
+        HttpRequestError.ConnectionError or
+        HttpRequestError.SecureConnectionError or
+        HttpRequestError.ProxyTunnelError;
+
     private async Task<DiscoveryResult<T>> ListAsync<T>(
         TriggerConfiguration configuration,
         string relativePath,

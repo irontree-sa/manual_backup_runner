@@ -12,6 +12,16 @@ public static class ExitCodes
     public const int InternalError = 8;
     public const int DiscoveryFailed = 9;
     public const int SelectionInvalid = 10;
+    public const int AlreadyRunning = 11;
+    public const int AcceptedNotObserved = 12;
+    public const int AcronisRejected = 13;
+    public const int StartOutcomeUnknown = 14;
+    public const int RunAuthenticationFailed = 15;
+    public const int RunConnectivityFailed = 16;
+    public const int UnknownCommand = 17;
+    public const int TotalTimeout = 18;
+    public const int StartOutstanding = 19;
+    public const int UnexpectedResponse = 20;
 }
 
 public sealed class CommandHost(
@@ -20,11 +30,29 @@ public sealed class CommandHost(
     TextReader input,
     TextWriter output,
     TextWriter error,
-    Func<string> secretReader)
+    Func<string> secretReader,
+    Func<IAcronisTransport, BackupTrigger>? triggerFactory = null,
+    Action<string>? log = null,
+    IPendingStartStore? pendingStarts = null)
 {
+    private readonly IPendingStartStore pending = pendingStarts ?? new NullPendingStartStore();
+
     public async Task<int> RunAsync(string[] args, CancellationToken cancellationToken = default)
     {
-        var command = args.FirstOrDefault()?.ToLowerInvariant() ?? "run";
+        var requested = args.FirstOrDefault()?.ToLowerInvariant() ?? "run";
+        var command = Known.Contains(requested) ? requested : "unknown";
+        var exit = await DispatchAsync(requested, command, cancellationToken);
+
+        // Log the recognised command name only: an unknown argument may contain secrets.
+        log?.Invoke($"{command}: exit={exit}");
+        return exit;
+    }
+
+    private static readonly HashSet<string> Known =
+        ["setup", "reset", "select-target", "diagnose", "list-policies", "list-resources", "run", "clear-pending"];
+
+    private async Task<int> DispatchAsync(string requested, string command, CancellationToken cancellationToken)
+    {
         try
         {
             return command switch
@@ -35,7 +63,9 @@ public sealed class CommandHost(
                 "diagnose" => await DiagnoseAsync(cancellationToken),
                 "list-policies" => await ListPoliciesAsync(cancellationToken),
                 "list-resources" => await ListResourcesAsync(cancellationToken),
-                _ => RunUnavailable(),
+                "run" => await TriggerBackupAsync(cancellationToken),
+                "clear-pending" => ClearPending(),
+                _ => UnknownCommand(),
             };
         }
         catch (UnauthorizedAccessException)
@@ -238,9 +268,70 @@ public sealed class CommandHost(
         return ExitCodes.DiscoveryFailed;
     }
 
-    private int RunUnavailable()
+    private async Task<int> TriggerBackupAsync(CancellationToken cancellationToken)
     {
-        error.WriteLine("Run is unavailable until a protection policy and Configured resource are selected.");
-        return ExitCodes.RunUnavailable;
+        if (Required() is not { } configuration) return ExitCodes.ConfigurationMissing;
+
+        var transport = transportFactory();
+        var trigger = triggerFactory?.Invoke(transport) ?? new BackupTrigger(transport, pending);
+
+        TriggerResult result;
+        try
+        {
+            result = await trigger.RunAsync(configuration, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            error.WriteLine("The run exceeded its time budget. Check the Acronis console before running again.");
+            return ExitCodes.TotalTimeout;
+        }
+
+        var exit = result.Outcome switch
+        {
+            TriggerOutcome.ObservedRunning => ExitCodes.Success,
+            TriggerOutcome.AlreadyRunning => ExitCodes.AlreadyRunning,
+            TriggerOutcome.AcceptedNotObserved => ExitCodes.AcceptedNotObserved,
+            TriggerOutcome.TargetNotConfigured => ExitCodes.RunUnavailable,
+            TriggerOutcome.AuthenticationFailed => ExitCodes.RunAuthenticationFailed,
+            TriggerOutcome.ConnectivityFailed => ExitCodes.RunConnectivityFailed,
+            TriggerOutcome.AcronisRejected => ExitCodes.AcronisRejected,
+            TriggerOutcome.StartOutstanding => ExitCodes.StartOutstanding,
+            TriggerOutcome.UnexpectedResponse => ExitCodes.UnexpectedResponse,
+            TriggerOutcome.TotalTimeout => ExitCodes.TotalTimeout,
+            _ => ExitCodes.StartOutcomeUnknown,
+        };
+
+        var line = $"{result.Outcome}: {result.Detail}";
+        if (exit == ExitCodes.Success) output.WriteLine(line);
+        else error.WriteLine(line);
+
+        return exit;
     }
+
+    private int ClearPending()
+    {
+        if (pending.Read() is not { } sentAt)
+        {
+            output.WriteLine("No outstanding start request is recorded.");
+            return ExitCodes.Success;
+        }
+
+        pending.Clear();
+        output.WriteLine($"Cleared the outstanding start request recorded at {sentAt:u}. Confirm in the Acronis console that no backup is still running.");
+        return ExitCodes.Success;
+    }
+
+    private int UnknownCommand()
+    {
+        error.WriteLine("Unknown command. Use setup, select-target, list-policies, list-resources, diagnose, clear-pending, reset, or no argument to run.");
+        return ExitCodes.UnknownCommand;
+    }
+}
+
+/// <summary>Used when no durable pending-start location is configured, e.g. in tests.</summary>
+public sealed class NullPendingStartStore : IPendingStartStore
+{
+    public DateTimeOffset? Read() => null;
+    public void Mark(DateTimeOffset sentAt) { }
+    public void Clear() { }
 }

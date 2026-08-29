@@ -9,12 +9,12 @@ public sealed class CommandHostTests : IDisposable
     private readonly StringWriter error = new();
 
     [Fact]
-    public async Task No_arguments_reports_run_is_unavailable_before_target_selection()
+    public async Task No_arguments_on_an_unconfigured_machine_reports_missing_configuration()
     {
         var exit = await Host([], Store()).RunAsync([]);
 
-        Assert.Equal(ExitCodes.RunUnavailable, exit);
-        Assert.Contains("Run is unavailable", error.ToString());
+        Assert.Equal(ExitCodes.ConfigurationMissing, exit);
+        Assert.Contains("Configuration is missing", error.ToString());
     }
 
     [Fact]

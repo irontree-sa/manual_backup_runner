@@ -22,6 +22,18 @@ public interface IAcronisTransport
         TriggerConfiguration configuration,
         string policyId,
         CancellationToken cancellationToken);
+
+    Task<ExecutionState> GetExecutionStateAsync(
+        TriggerConfiguration configuration,
+        string policyId,
+        string resourceId,
+        CancellationToken cancellationToken);
+
+    Task<StartOutcome> StartPolicyAsync(
+        TriggerConfiguration configuration,
+        string policyId,
+        string resourceId,
+        CancellationToken cancellationToken);
 }
 
 public enum DiagnosticOutcome
