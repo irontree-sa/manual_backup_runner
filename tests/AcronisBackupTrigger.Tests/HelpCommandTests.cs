@@ -109,7 +109,7 @@ public sealed class HelpCommandTests
         var result = await ExecuteApplicationAsync("help");
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("Acronis Backup Trigger", result.StandardOutput);
+        Assert.Equal(HelpContent.Text + Environment.NewLine, result.StandardOutput);
         Assert.Equal("", result.StandardError);
     }
 
@@ -126,9 +126,23 @@ public sealed class HelpCommandTests
         start.ArgumentList.Add(argument);
 
         using var process = Process.Start(start)!;
-        var stdout = await process.StandardOutput.ReadToEndAsync();
-        var stderr = await process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
+
+        // Drain both pipes concurrently so neither can fill and deadlock the child.
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+
+        try
+        {
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        catch (TimeoutException)
+        {
+            process.Kill(entireProcessTree: true);
+            throw;
+        }
+
+        var stdout = await stdoutTask;
+        var stderr = await stderrTask;
 
         return (process.ExitCode, stdout, stderr);
     }

@@ -71,6 +71,7 @@ or a bounded failure. One invocation is capped at 90 seconds.
 
 | Command | Purpose |
 | --- | --- |
+| *(no argument)* | Start the configured protection policy on the configured resource. |
 | `help` | Print the static operator guide; works before configuration and without elevation. |
 | `setup` | Store the data-centre URL, API client, protection policy, and resource. |
 | `select-target` | Change only the protection policy and resource. |
