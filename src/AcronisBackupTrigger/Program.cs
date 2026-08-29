@@ -1,6 +1,17 @@
 using System.Diagnostics;
 using AcronisBackupTrigger;
 
+// Help is static and secret-free, so it must be available before any runtime
+// dependency: the Windows platform guard, configuration, logging, the machine
+// lock, transport, and elevation checks. It deliberately bypasses command-audit
+// logging because the restricted log path may be unwritable to an unprivileged
+// caller.
+if (args.Length == 1 && string.Equals(args[0], "help", StringComparison.OrdinalIgnoreCase))
+{
+    Console.Out.WriteLine(HelpContent.Text);
+    return ExitCodes.Success;
+}
+
 if (!OperatingSystem.IsWindows())
 {
     Console.Error.WriteLine("This executable must run on Windows.");

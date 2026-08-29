@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using AcronisBackupTrigger;
 
 namespace AcronisBackupTrigger.Tests;
@@ -102,6 +103,38 @@ public sealed class HelpCommandTests
         Assert.Empty(error.ToString());
         Assert.Equal(0, protector.UnprotectCalls);
     }
+    [Fact]
+    public async Task Executable_help_is_cross_platform_and_exits_zero()
+    {
+        var result = await ExecuteApplicationAsync("help");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Acronis Backup Trigger", result.StandardOutput);
+        Assert.Equal("", result.StandardError);
+    }
+
+    private static async Task<(int ExitCode, string StandardOutput, string StandardError)> ExecuteApplicationAsync(string argument)
+    {
+        var start = new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        start.ArgumentList.Add(ExecutablePath);
+        start.ArgumentList.Add(argument);
+
+        using var process = Process.Start(start)!;
+        var stdout = await process.StandardOutput.ReadToEndAsync();
+        var stderr = await process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+
+        return (process.ExitCode, stdout, stderr);
+    }
+
+    private static string ExecutablePath =>
+        Path.Combine(AppContext.BaseDirectory, "AcronisBackupTrigger.dll");
 
     private sealed class RecordingProtector : ISecretProtector
     {

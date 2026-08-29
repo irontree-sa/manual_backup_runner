@@ -71,7 +71,7 @@ or a bounded failure. One invocation is capped at 90 seconds.
 
 | Command | Purpose |
 | --- | --- |
-| *(no argument)* | Start the configured protection policy and wait for it to be observed running. |
+| `help` | Print the static operator guide; works before configuration and without elevation. |
 | `setup` | Store the data-centre URL, API client, protection policy, and resource. |
 | `select-target` | Change only the protection policy and resource. |
 | `list-policies` | List root protection policies. Read-only. |
@@ -83,6 +83,10 @@ or a bounded failure. One invocation is capped at 90 seconds.
 `setup`, `select-target`, `clear-pending`, and `reset` require an elevated
 Administrator session. Run them from an elevated PowerShell window; otherwise the
 trigger exits with code 21.
+
+`help` prints a static, secret-free operator guide. It does not display saved
+configuration and does not contact Acronis; it works before configuration and
+without elevation.
 
 ## Exit codes
 
