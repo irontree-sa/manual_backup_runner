@@ -38,6 +38,69 @@ public sealed class HelpCommandTests
         Assert.DoesNotContain("https://tenant.example", output.ToString());
         Assert.DoesNotContain("client-secret-sentinel", output.ToString());
         Assert.DoesNotContain("resource-id-123", output.ToString());
+
+        var guide = output.ToString();
+
+        // No-argument invocation.
+        Assert.Contains("AcronisBackupTrigger.exe", guide);
+
+        // Every command is documented.
+        Assert.Contains("setup", guide);
+        Assert.Contains("select-target", guide);
+        Assert.Contains("list-policies", guide);
+        Assert.Contains("list-resources", guide);
+        Assert.Contains("diagnose", guide);
+        Assert.Contains("clear-pending", guide);
+        Assert.Contains("reset", guide);
+
+        // Exit-code guidance.
+        Assert.Contains("Exit 12", guide);
+        Assert.Contains("Exit 14", guide);
+        Assert.Contains("Exit 18", guide);
+        Assert.Contains("Exit 19", guide);
+
+        // Acronis console rules.
+        Assert.Contains("Acronis console", guide);
+
+        // Identity/elevation distinction.
+        Assert.Contains("Configuration administrator identity", guide);
+        Assert.Contains("elevated Administrator", guide);
+
+        // Release verification.
+        Assert.Contains("SHA256SUMS.txt", guide);
+        Assert.Contains("Get-FileHash", guide);
+        Assert.Contains("Unblock-File", guide);
+        Assert.Contains("allow-list", guide);
+
+        // Configuration and log locations.
+        Assert.Contains(@"C:\ProgramData\AcronisBackupTrigger", guide);
+        Assert.Contains("trigger.log", guide);
+    }
+
+    [Fact]
+    public async Task Help_never_evaluates_administrator_gate()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var protector = new RecordingProtector();
+        var store = new ConfigurationStore(directory, protector);
+
+        var output = new StringWriter();
+        var error = new StringWriter();
+        var host = new CommandHost(
+            store,
+            () => throw new InvalidOperationException("help must not construct transport"),
+            new StringReader(""),
+            output,
+            error,
+            () => throw new InvalidOperationException("help must not read secret"),
+            administratorGate: new ThrowingAdministratorGate());
+
+        var exit = await host.RunAsync(["help"]);
+
+        Assert.Equal(ExitCodes.Success, exit);
+        Assert.Equal(HelpContent.Text + Environment.NewLine, output.ToString());
+        Assert.Empty(error.ToString());
+        Assert.Equal(0, protector.UnprotectCalls);
     }
 
     private sealed class RecordingProtector : ISecretProtector
@@ -51,5 +114,10 @@ public sealed class HelpCommandTests
             UnprotectCalls++;
             throw new InvalidOperationException("help must not load configuration");
         }
+    }
+
+    private sealed class ThrowingAdministratorGate : IAdministratorGate
+    {
+        public bool IsElevated => throw new InvalidOperationException("help must not evaluate the administrator gate");
     }
 }
