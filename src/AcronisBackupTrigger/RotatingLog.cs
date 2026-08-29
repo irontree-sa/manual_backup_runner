@@ -77,10 +77,17 @@ public sealed class RotatingLog(
             // skip this audit line rather than block the command.
             return;
         }
-        _postAcquire?.Invoke(logLock);
-
         try
         {
+            try
+            {
+                _postAcquire?.Invoke(logLock);
+            }
+            catch (Exception)
+            {
+                // Best-effort: a throwing hook must never strand the lock or change
+                // the command result.
+            }
             WriteCore(message);
         }
         catch (IOException)

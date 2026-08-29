@@ -129,6 +129,27 @@ public sealed class RotatingLogTests : IDisposable
             "a release failure must not prevent the audit line from being written");
     }
 
+    [Fact]
+    public void Write_swallows_a_throwing_hook_without_stranding_the_lock()
+    {
+        var semaphore = new Semaphore(1, 1);
+        var log = new RotatingLog(directory, lockFactory: () => semaphore, postAcquire: _ => throw new InvalidOperationException("boom"));
+
+        // A throwing hook must not propagate, and the lock must still be released
+        // so a later Write on the same semaphore acquires it instead of timing out.
+        log.Write("run: exit=0 outcome=ObservedRunning");
+
+        Assert.True(File.Exists(Path.Combine(directory, "trigger.log")),
+            "a throwing hook must not prevent the audit line from being written");
+
+        var stopwatch = Stopwatch.StartNew();
+        log.Write("run: exit=0 outcome=ObservedRunning");
+        stopwatch.Stop();
+
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5),
+            $"a stranded lock made the second Write block for {stopwatch.Elapsed}");
+    }
+
     public void Dispose()
     {
         logLock.Dispose();
