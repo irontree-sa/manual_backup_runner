@@ -47,7 +47,17 @@ public sealed class CommandHost(
         var exit = await DispatchAsync(requested, command, cancellationToken);
 
         // Log the recognised command name only: an unknown argument may contain secrets.
-        log?.Invoke($"{command}: exit={exit}");
+        // Logging is best-effort and must never replace the already-determined exit code.
+        try
+        {
+            log?.Invoke($"{command}: exit={exit}");
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
         return exit;
     }
 
@@ -78,6 +88,14 @@ public sealed class CommandHost(
                 _ => UnknownCommand(),
             };
         }
+        catch (OperationCanceledException)
+        {
+            // The unattended invocation budget expired during a non-run command. The
+            // run path reports its own warning about possible backup state, so this
+            // guidance is deliberately start-agnostic.
+            error.WriteLine("The command exceeded its time budget. Check the Acronis console before running again.");
+            return ExitCodes.TotalTimeout;
+        }
         catch (UnauthorizedAccessException)
         {
             error.WriteLine("Configuration is not accessible to this account.");
@@ -104,15 +122,24 @@ public sealed class CommandHost(
         }
         catch (ConfigurationUnreadableException)
         {
-            output.WriteLine("Existing configuration cannot be read and will be replaced.");
             existing = null;
         }
 
-        if (existing is not null)
+        // A damaged or undecryptable configuration still occupies the protected
+        // location, so replacing it requires the same explicit confirmation as any
+        // other replacement. Track existence independently of deserialization.
+        if (existing is not null || store.Exists())
         {
-            output.WriteLine($"Current configuration: {existing.DataCenterUrl} / {existing.ClientId}");
-            if (existing.PolicyId is not null)
-                output.WriteLine($"Current target: {existing.PolicyName} ({existing.PolicyId}) on {existing.ResourceName} ({existing.ResourceId})");
+            if (existing is not null)
+            {
+                output.WriteLine($"Current configuration: {existing.DataCenterUrl} / {existing.ClientId}");
+                if (existing.PolicyId is not null)
+                    output.WriteLine($"Current target: {existing.PolicyName} ({existing.PolicyId}) on {existing.ResourceName} ({existing.ResourceId})");
+            }
+            else
+            {
+                output.WriteLine("Existing configuration cannot be read and will be replaced only on confirmation.");
+            }
 
             output.Write("Type REPLACE to overwrite it: ");
             if (!string.Equals(input.ReadLine(), "REPLACE", StringComparison.Ordinal))
@@ -219,7 +246,8 @@ public sealed class CommandHost(
         var result = await new Diagnostics(transportFactory()).CheckAsync(configuration, cancellationToken);
         output.WriteLine(result.Outcome);
 
-        if (result.Outcome != DiagnosticOutcome.Authenticated) return ExitCodes.DiagnosticsFailed;
+        if (result.Outcome is not (DiagnosticOutcome.Authenticated or DiagnosticOutcome.TargetIdle or DiagnosticOutcome.TargetRunning))
+            return ExitCodes.DiagnosticsFailed;
 
         if (configuration.PolicyId is null)
         {

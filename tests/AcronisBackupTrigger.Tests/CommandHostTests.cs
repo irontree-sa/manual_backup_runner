@@ -149,6 +149,167 @@ public sealed class CommandHostTests : IDisposable
         Assert.Contains("elevated Administrator", error.ToString());
     }
 
+    [Fact]
+    public async Task A_throwing_logger_never_replaces_the_command_exit_code()
+    {
+        var store = Store();
+        store.Save(new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "secret",
+            "policy-1", "Daily", "resource-1", "SERVER-01"));
+        var transport = new FakeAcronisTransport
+        {
+            State = ExecutionState.Idle,
+            Start = StartOutcome.CompletedSynchronously,
+        };
+
+        var host = new CommandHost(
+            store,
+            () => transport,
+            new StringReader(""),
+            output,
+            error,
+            () => "typed-secret",
+            log: _ => throw new IOException("disk full"));
+
+        var exit = await host.RunAsync([]);
+
+        Assert.Equal(ExitCodes.Success, exit);
+    }
+
+    [Fact]
+    public async Task A_throwing_logger_never_replaces_a_denied_administrator_gate()
+    {
+        var store = new ConfigurationStore(directory, new DeniedProtector());
+        Directory.CreateDirectory(directory);
+        File.WriteAllBytes(Path.Combine(directory, "configuration.dat"), [1, 2, 3]);
+
+        var host = new CommandHost(
+            store,
+            () => throw new InvalidOperationException("transport must not be constructed"),
+            new StringReader(""),
+            output,
+            error,
+            () => throw new InvalidOperationException("secret must not be read"),
+            log: _ => throw new UnauthorizedAccessException("log denied"),
+            administratorGate: new DeniedAdministratorGate());
+
+        var exit = await host.RunAsync(["setup"]);
+
+        Assert.Equal(ExitCodes.AdministratorRequired, exit);
+    }
+
+    [Fact]
+    public async Task Diagnose_reports_a_non_zero_exit_when_the_saved_target_is_unreadable()
+    {
+        var store = Store();
+        store.Save(new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "secret",
+            "policy-1", "Daily", "resource-1", "SERVER-01"));
+        var transport = new FakeAcronisTransport { State = ExecutionState.AcronisRejected };
+
+        var host = new CommandHost(
+            store,
+            () => transport,
+            new StringReader(""),
+            output,
+            error,
+            () => "typed-secret");
+
+        var exit = await host.RunAsync(["diagnose"]);
+
+        Assert.Equal(ExitCodes.DiagnosticsFailed, exit);
+        Assert.Contains("TargetRejected", output.ToString());
+    }
+
+    [Fact]
+    public async Task Diagnose_reports_success_when_the_saved_target_is_idle()
+    {
+        var store = Store();
+        store.Save(new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "secret",
+            "policy-1", "Daily", "resource-1", "SERVER-01"));
+        var transport = new FakeAcronisTransport { State = ExecutionState.Idle };
+
+        var host = new CommandHost(
+            store,
+            () => transport,
+            new StringReader(""),
+            output,
+            error,
+            () => "typed-secret");
+
+        var exit = await host.RunAsync(["diagnose"]);
+
+        Assert.Equal(ExitCodes.Success, exit);
+        Assert.Contains("TargetIdle", output.ToString());
+    }
+
+    [Fact]
+    public async Task Setup_requires_REPLACE_before_overwriting_unreadable_configuration()
+    {
+        var store = new ConfigurationStore(directory, new CorruptProtector());
+        Directory.CreateDirectory(directory);
+        var original = new byte[] { 1, 2, 3, 4, 5 };
+        File.WriteAllBytes(Path.Combine(directory, "configuration.dat"), original);
+
+        var host = new CommandHost(
+            store,
+            () => throw new InvalidOperationException("transport must not be constructed"),
+            new StringReader("no"),
+            output,
+            error,
+            () => throw new InvalidOperationException("secret must not be read"));
+
+        var exit = await host.RunAsync(["setup"]);
+
+        Assert.Equal(ExitCodes.Success, exit);
+        Assert.Equal(original, File.ReadAllBytes(Path.Combine(directory, "configuration.dat")));
+        Assert.Contains("REPLACE", output.ToString());
+    }
+
+    [Theory]
+    [InlineData("diagnose")]
+    [InlineData("list-policies")]
+    [InlineData("list-resources")]
+    public async Task Budget_cancellation_returns_total_timeout_for_non_run_commands(string command)
+    {
+        var store = Store();
+        store.Save(new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "secret",
+            "policy-1", "Daily", "resource-1", "SERVER-01"));
+        var transport = new CancellingTransport();
+
+        var host = new CommandHost(
+            store,
+            () => transport,
+            new StringReader(""),
+            output,
+            error,
+            () => "typed-secret");
+
+        using var budget = new CancellationTokenSource();
+        budget.Cancel();
+
+        var exit = await host.RunAsync([command], budget.Token);
+
+        Assert.Equal(ExitCodes.TotalTimeout, exit);
+        Assert.Contains("time budget", error.ToString());
+    }
+
+    private sealed class CancellingTransport : IAcronisTransport
+    {
+        public Task<TokenResult> RequestTokenAsync(TriggerConfiguration configuration, CancellationToken cancellationToken) =>
+            throw new OperationCanceledException(cancellationToken);
+
+        public Task<DiscoveryResult<AcronisPolicy>> ListProtectionPoliciesAsync(TriggerConfiguration configuration, CancellationToken cancellationToken) =>
+            throw new OperationCanceledException(cancellationToken);
+
+        public Task<DiscoveryResult<AcronisResource>> ListResourcesAsync(TriggerConfiguration configuration, string policyId, CancellationToken cancellationToken) =>
+            throw new OperationCanceledException(cancellationToken);
+
+        public Task<ExecutionState> GetExecutionStateAsync(TriggerConfiguration configuration, string policyId, string resourceId, CancellationToken cancellationToken) =>
+            throw new OperationCanceledException(cancellationToken);
+
+        public Task<StartOutcome> StartPolicyAsync(TriggerConfiguration configuration, string policyId, string resourceId, CancellationToken cancellationToken) =>
+            throw new OperationCanceledException(cancellationToken);
+    }
+
     private sealed class DeniedAdministratorGate : IAdministratorGate
     {
         public bool IsElevated => false;

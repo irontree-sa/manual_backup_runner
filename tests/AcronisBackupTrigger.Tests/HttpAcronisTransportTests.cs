@@ -217,7 +217,145 @@ public sealed class HttpAcronisTransportTests
         Assert.Equal(2, handler.Attempts);
         Assert.Empty(delays);
     }
+    [Fact]
+    public async Task StartPolicy_puts_the_documented_run_endpoint_with_bearer_and_body()
+    {
+        var handler = new StubHandler(attempt => attempt == 1
+            ? TokenResponse()
+            : new HttpResponseMessage(HttpStatusCode.Accepted));
+        using var client = new HttpClient(handler);
 
+        await Transport(client).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None);
+
+        var request = handler.Requests[1];
+        Assert.Equal(HttpMethod.Put, request.Method);
+        Assert.Equal("https://example.test/api/policy_management/v4/applications/run", request.Uri);
+        Assert.Equal("Bearer", request.AuthorizationScheme);
+        Assert.Equal("eyJ0", request.AuthorizationParameter);
+        Assert.Equal("""{"state":"running","policy_id":"policy-1","context_ids":["resource-1"]}""", request.Body);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Accepted, StartOutcome.Accepted)]
+    [InlineData(HttpStatusCode.NoContent, StartOutcome.CompletedSynchronously)]
+    public async Task StartPolicy_maps_202_and_204(HttpStatusCode status, StartOutcome expected)
+    {
+        var handler = new StubHandler(attempt => attempt == 1
+            ? TokenResponse()
+            : new HttpResponseMessage(status));
+        using var client = new HttpClient(handler);
+
+        Assert.Equal(expected, await Transport(client).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None));
+        Assert.Equal(2, handler.Attempts);
+    }
+
+    [Fact]
+    public async Task StartPolicy_maps_401_to_authentication_failure()
+    {
+        var handler = new StubHandler(attempt => attempt == 1
+            ? TokenResponse()
+            : new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        using var client = new HttpClient(handler);
+
+        Assert.Equal(StartOutcome.AuthenticationFailed, await Transport(client).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task StartPolicy_maps_403_to_rejection_not_authentication_failure()
+    {
+        var handler = new StubHandler(attempt => attempt == 1
+            ? TokenResponse()
+            : new HttpResponseMessage(HttpStatusCode.Forbidden));
+        using var client = new HttpClient(handler);
+
+        Assert.Equal(StartOutcome.Rejected, await Transport(client).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.RequestTimeout)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    public async Task StartPolicy_never_resends_an_ambiguous_response(HttpStatusCode status)
+    {
+        var handler = new StubHandler(attempt => attempt == 1
+            ? TokenResponse()
+            : new HttpResponseMessage(status));
+        using var client = new HttpClient(handler);
+        var delays = new List<TimeSpan>();
+
+        var result = await Transport(client, delays).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None);
+
+        Assert.Equal(StartOutcome.OutcomeUnknown, result);
+        Assert.Equal(2, handler.Attempts);
+        Assert.Empty(delays);
+    }
+
+    [Fact]
+    public async Task StartPolicy_never_resends_after_a_timeout()
+    {
+        var handler = new StubHandler(attempt => attempt == 1
+            ? TokenResponse()
+            : throw new TaskCanceledException("timeout"));
+        using var client = new HttpClient(handler);
+        var delays = new List<TimeSpan>();
+
+        var result = await Transport(client, delays).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None);
+
+        Assert.Equal(StartOutcome.OutcomeUnknown, result);
+        Assert.Equal(2, handler.Attempts);
+        Assert.Empty(delays);
+    }
+
+    [Fact]
+    public async Task StartPolicy_propagates_caller_cancellation()
+    {
+        var handler = new StubHandler(attempt => attempt == 1
+            ? TokenResponse()
+            : throw new TaskCanceledException("cancelled"));
+        using var client = new HttpClient(handler);
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => Transport(client).StartPolicyAsync(Config, "policy-1", "resource-1", cancellation.Token));
+    }
+
+    [Theory]
+    [InlineData(HttpRequestError.NameResolutionError)]
+    [InlineData(HttpRequestError.SecureConnectionError)]
+    [InlineData(HttpRequestError.ProxyTunnelError)]
+    public async Task StartPolicy_retries_provably_pre_send_failures_with_bounded_backoff(HttpRequestError error)
+    {
+        var handler = new StubHandler(attempt => attempt == 1
+            ? TokenResponse()
+            : throw new HttpRequestException(error));
+        using var client = new HttpClient(handler);
+        var delays = new List<TimeSpan>();
+
+        var result = await Transport(client, delays).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None);
+
+        Assert.Equal(StartOutcome.NotSent, result);
+        Assert.Equal(6, handler.Attempts);
+        Assert.Equal([TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(8), TimeSpan.FromSeconds(16)], delays);
+    }
+
+    [Fact]
+    public async Task GetExecutionState_requests_the_documented_status_endpoint_with_filter()
+    {
+        var handler = new StubHandler(attempt => attempt == 1
+            ? TokenResponse()
+            : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"items":[]}""") });
+        using var client = new HttpClient(handler);
+
+        await Transport(client).GetExecutionStateAsync(Config, "policy-1", "resource-1", CancellationToken.None);
+
+        var request = handler.Requests[1];
+        Assert.Equal(HttpMethod.Get, request.Method);
+        Assert.Equal(
+            "https://example.test/api/policy_management/v4/applications?policy_id=policy-1&context_id=resource-1&execution_state=running",
+            request.Uri);
+        Assert.Equal("Bearer", request.AuthorizationScheme);
+    }
 
 
     private static HttpAcronisTransport Transport(HttpClient client, List<TimeSpan>? delays = null) =>

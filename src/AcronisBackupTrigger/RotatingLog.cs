@@ -12,7 +12,39 @@ public sealed class RotatingLog(string directory, long maxBytes = 256 * 1024)
     private readonly string path = Path.Combine(directory, "trigger.log");
     private readonly string previous = Path.Combine(directory, "trigger.log.1");
 
+    // Serialise log writes across processes: the lock-loser path in Program.cs and
+    // the command-audit write can otherwise interleave and corrupt the file. The
+    // named semaphore is Windows-only; elsewhere a process-local semaphore suffices
+    // because the executable targets Windows.
+    private static readonly Semaphore LogLock = OperatingSystem.IsWindows()
+        ? new Semaphore(1, 1, "Global\\AcronisBackupTrigger.Log")
+        : new Semaphore(1, 1);
+
     public void Write(string message)
+    {
+        try
+        {
+            LogLock.WaitOne();
+            try
+            {
+                WriteCore(message);
+            }
+            finally
+            {
+                LogLock.Release();
+            }
+        }
+        catch (IOException)
+        {
+            // Best-effort: a full disk or file lock must never change the command result.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Best-effort: an unprivileged caller may not write the protected log.
+        }
+    }
+
+    private void WriteCore(string message)
     {
         Directory.CreateDirectory(directory);
 

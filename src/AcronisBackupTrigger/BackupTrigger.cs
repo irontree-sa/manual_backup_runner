@@ -155,19 +155,41 @@ public sealed class BackupTrigger(
         // Measure wall clock: token acquisition, HTTP latency, and status retries all
         // consume the observation window, not only the delays we schedule.
         var elapsed = elapsedOverride ?? StopwatchElapsed();
+        var deadline = elapsed() + window;
 
-        while (elapsed() < window)
+        while (elapsed() < deadline)
         {
-            var remaining = window - elapsed();
-            await delay(PollInterval < remaining ? PollInterval : remaining, cancellationToken);
+            var remaining = deadline - elapsed();
 
-            var state = await transport.GetExecutionStateAsync(configuration, policyId, resourceId, cancellationToken);
-            if (state == ExecutionState.Running)
+            // Bound this delay and status call to the remaining observation time, so a
+            // slow token acquisition or status retry cannot outlive the fixed window.
+            using var observation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            observation.CancelAfter(remaining);
+
+            try
             {
-                pendingStarts.Clear();
-                return new TriggerResult(
-                    TriggerOutcome.ObservedRunning,
-                    $"{configuration.PolicyName} is running on {configuration.ResourceName}. Monitor completion in the Acronis console.");
+                await delay(PollInterval < remaining ? PollInterval : remaining, observation.Token);
+                var state = await transport.GetExecutionStateAsync(configuration, policyId, resourceId, observation.Token);
+
+                // Re-check the deadline after the status call: a Running report that
+                // arrives after the window has expired is not a successful observation.
+                if (state == ExecutionState.Running && elapsed() < deadline)
+                {
+                    pendingStarts.Clear();
+                    return new TriggerResult(
+                        TriggerOutcome.ObservedRunning,
+                        $"{configuration.PolicyName} is running on {configuration.ResourceName}. Monitor completion in the Acronis console.");
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // The global invocation budget expired, not the observation window.
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                // The observation window expired during a delay or status call.
+                break;
             }
         }
 

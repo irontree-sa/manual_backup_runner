@@ -131,7 +131,8 @@ public sealed class HttpAcronisTransport(
                 {
                     HttpStatusCode.Accepted => StartOutcome.Accepted,
                     HttpStatusCode.NoContent => StartOutcome.CompletedSynchronously,
-                    HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => StartOutcome.AuthenticationFailed,
+                    HttpStatusCode.Unauthorized => StartOutcome.AuthenticationFailed,
+                    HttpStatusCode.Forbidden => StartOutcome.Rejected,
                     HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests => StartOutcome.OutcomeUnknown,
                     var status when (int)status >= 500 => StartOutcome.OutcomeUnknown,
                     _ => StartOutcome.Rejected,

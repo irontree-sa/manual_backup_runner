@@ -185,6 +185,78 @@ public sealed class BackupTriggerTests
         Assert.Null(pending.Marked);
     }
 
+    [Fact]
+    public async Task Run_reports_acceptance_when_a_status_call_crosses_the_observation_deadline()
+    {
+        // The status call itself consumes the window: it reports Running only after
+        // the fixed deadline has already elapsed, so it must not count as success.
+        var clock = new MutableClock();
+        var transport = new DeadlineCrossingTransport(clock);
+        var pending = new RecordingPendingStore();
+
+        var trigger = new BackupTrigger(
+            transport,
+            pending,
+            (duration, _) =>
+            {
+                clock.Advance(duration);
+                return Task.CompletedTask;
+            },
+            TimeSpan.FromSeconds(6),
+            () => clock.Elapsed);
+
+        var result = await trigger.RunAsync(Configured, CancellationToken.None);
+
+        Assert.Equal(TriggerOutcome.AcceptedNotObserved, result.Outcome);
+        Assert.Equal(1, transport.StartCount);
+        Assert.Null(pending.Marked);
+    }
+
+    private sealed class MutableClock
+    {
+        public TimeSpan Elapsed { get; private set; }
+        public void Advance(TimeSpan duration) => Elapsed += duration;
+    }
+
+    private sealed class DeadlineCrossingTransport(MutableClock clock) : IAcronisTransport
+    {
+        private int stateReads;
+        public int StartCount { get; private set; }
+
+        public Task<TokenResult> RequestTokenAsync(TriggerConfiguration configuration, CancellationToken cancellationToken) =>
+            Task.FromResult(TokenResult.Authenticated);
+
+        public Task<DiscoveryResult<AcronisPolicy>> ListProtectionPoliciesAsync(TriggerConfiguration configuration, CancellationToken cancellationToken) =>
+            Task.FromResult(new DiscoveryResult<AcronisPolicy>(DiscoveryStatus.Succeeded, []));
+
+        public Task<DiscoveryResult<AcronisResource>> ListResourcesAsync(TriggerConfiguration configuration, string policyId, CancellationToken cancellationToken) =>
+            Task.FromResult(new DiscoveryResult<AcronisResource>(DiscoveryStatus.Succeeded, []));
+
+        public Task<ExecutionState> GetExecutionStateAsync(
+            TriggerConfiguration configuration,
+            string policyId,
+            string resourceId,
+            CancellationToken cancellationToken)
+        {
+            // The pre-start guard reports Idle; the observation status call simulates
+            // a slow response that advances the wall clock past the deadline before
+            // reporting Running.
+            if (stateReads++ == 0) return Task.FromResult(ExecutionState.Idle);
+            clock.Advance(TimeSpan.FromSeconds(10));
+            return Task.FromResult(ExecutionState.Running);
+        }
+
+        public Task<StartOutcome> StartPolicyAsync(
+            TriggerConfiguration configuration,
+            string policyId,
+            string resourceId,
+            CancellationToken cancellationToken)
+        {
+            StartCount++;
+            return Task.FromResult(StartOutcome.Accepted);
+        }
+    }
+
     private sealed class RecordingPendingStore : IPendingStartStore
     {
         public DateTimeOffset? Marked { get; set; }

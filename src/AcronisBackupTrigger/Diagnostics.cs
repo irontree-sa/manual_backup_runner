@@ -44,6 +44,12 @@ public enum DiagnosticOutcome
     InvalidDataCenterUrl,
     AcronisUnavailable,
     UnexpectedResponse,
+    TargetIdle,
+    TargetRunning,
+    TargetAuthenticationFailed,
+    TargetConnectivityFailed,
+    TargetRejected,
+    TargetUnexpectedResponse,
 }
 
 public sealed record DiagnosticResult(DiagnosticOutcome Outcome);
@@ -53,14 +59,36 @@ public sealed class Diagnostics(IAcronisTransport transport)
     public async Task<DiagnosticResult> CheckAsync(TriggerConfiguration configuration, CancellationToken cancellationToken = default)
     {
         var tokenResult = await transport.RequestTokenAsync(configuration, cancellationToken);
-        return new DiagnosticResult(tokenResult switch
+        if (tokenResult != TokenResult.Authenticated)
         {
-            TokenResult.Authenticated => DiagnosticOutcome.Authenticated,
-            TokenResult.AuthenticationFailed => DiagnosticOutcome.AuthenticationFailed,
-            TokenResult.InvalidDataCenterUrl => DiagnosticOutcome.InvalidDataCenterUrl,
-            TokenResult.AcronisUnavailable => DiagnosticOutcome.AcronisUnavailable,
-            TokenResult.UnexpectedResponse => DiagnosticOutcome.UnexpectedResponse,
-            _ => DiagnosticOutcome.ConnectivityFailed,
+            return new DiagnosticResult(tokenResult switch
+            {
+                TokenResult.AuthenticationFailed => DiagnosticOutcome.AuthenticationFailed,
+                TokenResult.InvalidDataCenterUrl => DiagnosticOutcome.InvalidDataCenterUrl,
+                TokenResult.AcronisUnavailable => DiagnosticOutcome.AcronisUnavailable,
+                TokenResult.UnexpectedResponse => DiagnosticOutcome.UnexpectedResponse,
+                _ => DiagnosticOutcome.ConnectivityFailed,
+            });
+        }
+
+        // Authentication alone is not a complete diagnostic: verify the selected
+        // policy/resource is still valid and readable through the status path.
+        if (configuration.PolicyId is not { Length: > 0 } policyId
+            || configuration.ResourceId is not { Length: > 0 } resourceId)
+        {
+            return new DiagnosticResult(DiagnosticOutcome.Authenticated);
+        }
+
+        var state = await transport.GetExecutionStateAsync(configuration, policyId, resourceId, cancellationToken);
+        return new DiagnosticResult(state switch
+        {
+            ExecutionState.Idle => DiagnosticOutcome.TargetIdle,
+            ExecutionState.Running => DiagnosticOutcome.TargetRunning,
+            ExecutionState.AuthenticationFailed => DiagnosticOutcome.TargetAuthenticationFailed,
+            ExecutionState.ConnectivityFailed => DiagnosticOutcome.TargetConnectivityFailed,
+            ExecutionState.AcronisRejected => DiagnosticOutcome.TargetRejected,
+            ExecutionState.UnexpectedResponse => DiagnosticOutcome.TargetUnexpectedResponse,
+            _ => DiagnosticOutcome.TargetUnexpectedResponse,
         });
     }
 }

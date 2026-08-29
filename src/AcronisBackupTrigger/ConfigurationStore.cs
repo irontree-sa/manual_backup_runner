@@ -108,6 +108,13 @@ public sealed class ConfigurationStore(string directory, ISecretProtector protec
         }
     }
 
+    /// <summary>
+    /// True when a configuration file exists on disk, regardless of whether it can
+    /// currently be decrypted or deserialized. Replacement of unreadable state still
+    /// requires explicit confirmation.
+    /// </summary>
+    public bool Exists() => File.Exists(path);
+
     public void Reset()
     {
         if (File.Exists(path)) File.Delete(path);
