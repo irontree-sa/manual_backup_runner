@@ -49,7 +49,13 @@ public sealed class CommandHost(
     }
 
     private static readonly HashSet<string> Known =
-        ["setup", "reset", "select-target", "diagnose", "list-policies", "list-resources", "run", "clear-pending"];
+        ["setup", "reset", "select-target", "diagnose", "list-policies", "list-resources", "run", "clear-pending", "help"];
+
+    private int Help()
+    {
+        output.WriteLine(HelpContent.Text);
+        return ExitCodes.Success;
+    }
 
     private async Task<int> DispatchAsync(string requested, string command, CancellationToken cancellationToken)
     {
@@ -65,6 +71,7 @@ public sealed class CommandHost(
                 "list-resources" => await ListResourcesAsync(cancellationToken),
                 "run" => await TriggerBackupAsync(cancellationToken),
                 "clear-pending" => ClearPending(),
+                "help" => Help(),
                 _ => UnknownCommand(),
             };
         }
