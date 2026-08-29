@@ -20,19 +20,35 @@ public sealed class RotatingLog(string directory, long maxBytes = 256 * 1024)
         ? new Semaphore(1, 1, "Global\\AcronisBackupTrigger.Log")
         : new Semaphore(1, 1);
 
+    // A process killed while holding the named semaphore leaves its count at zero
+    // forever, so an unbounded WaitOne would deadlock every later command. Wait only
+    // briefly; if the lock is held, abandoned, or unavailable, skip this audit line.
+    private static readonly TimeSpan LockTimeout = TimeSpan.FromMilliseconds(250);
+
     public void Write(string message)
     {
+        bool acquired;
         try
         {
-            LogLock.WaitOne();
-            try
-            {
-                WriteCore(message);
-            }
-            finally
-            {
-                LogLock.Release();
-            }
+            acquired = LogLock.WaitOne(LockTimeout);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            // Best-effort: a platform that cannot provide the named lock, or a lock
+            // that is unavailable, must never change the command result.
+            return;
+        }
+
+        if (!acquired)
+        {
+            // Best-effort: the lock is held (or was abandoned) by another process;
+            // skip this audit line rather than block the command.
+            return;
+        }
+
+        try
+        {
+            WriteCore(message);
         }
         catch (IOException)
         {
@@ -41,6 +57,10 @@ public sealed class RotatingLog(string directory, long maxBytes = 256 * 1024)
         catch (UnauthorizedAccessException)
         {
             // Best-effort: an unprivileged caller may not write the protected log.
+        }
+        finally
+        {
+            LogLock.Release();
         }
     }
 
