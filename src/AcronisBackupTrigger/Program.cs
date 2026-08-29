@@ -63,7 +63,8 @@ try
             Console.Error,
             ReadSecret,
             log: log.Write,
-            pendingStarts: pendingStarts);
+            pendingStarts: pendingStarts,
+            administratorGate: new WindowsAdministratorGate());
 
         return await host.RunAsync(args, budget?.Token ?? CancellationToken.None);
     }

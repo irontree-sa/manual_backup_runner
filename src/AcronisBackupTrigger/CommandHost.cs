@@ -22,6 +22,7 @@ public static class ExitCodes
     public const int TotalTimeout = 18;
     public const int StartOutstanding = 19;
     public const int UnexpectedResponse = 20;
+    public const int AdministratorRequired = 21;
 }
 
 public sealed class CommandHost(
@@ -33,9 +34,11 @@ public sealed class CommandHost(
     Func<string> secretReader,
     Func<IAcronisTransport, BackupTrigger>? triggerFactory = null,
     Action<string>? log = null,
-    IPendingStartStore? pendingStarts = null)
+    IPendingStartStore? pendingStarts = null,
+    IAdministratorGate? administratorGate = null)
 {
     private readonly IPendingStartStore pending = pendingStarts ?? new NullPendingStartStore();
+    private readonly IAdministratorGate administrator = administratorGate ?? new AllowAdministratorGate();
 
     public async Task<int> RunAsync(string[] args, CancellationToken cancellationToken = default)
     {
@@ -63,14 +66,14 @@ public sealed class CommandHost(
         {
             return command switch
             {
-                "setup" => await SetupAsync(cancellationToken),
-                "reset" => Reset(),
-                "select-target" => await SelectTargetAsync(cancellationToken),
+                "setup" => RequireAdministrator() ? await SetupAsync(cancellationToken) : ExitCodes.AdministratorRequired,
+                "reset" => RequireAdministrator() ? Reset() : ExitCodes.AdministratorRequired,
+                "select-target" => RequireAdministrator() ? await SelectTargetAsync(cancellationToken) : ExitCodes.AdministratorRequired,
+                "clear-pending" => RequireAdministrator() ? ClearPending() : ExitCodes.AdministratorRequired,
                 "diagnose" => await DiagnoseAsync(cancellationToken),
                 "list-policies" => await ListPoliciesAsync(cancellationToken),
                 "list-resources" => await ListResourcesAsync(cancellationToken),
                 "run" => await TriggerBackupAsync(cancellationToken),
-                "clear-pending" => ClearPending(),
                 "help" => Help(),
                 _ => UnknownCommand(),
             };
@@ -314,6 +317,14 @@ public sealed class CommandHost(
 
         return exit;
     }
+    private bool RequireAdministrator()
+    {
+        if (administrator.IsElevated) return true;
+
+        error.WriteLine("This command must run from an elevated Administrator session.");
+        return false;
+    }
+
 
     private int ClearPending()
     {

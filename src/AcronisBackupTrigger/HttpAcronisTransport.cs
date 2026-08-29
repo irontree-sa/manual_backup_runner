@@ -58,7 +58,7 @@ public sealed class HttpAcronisTransport(
             {
                 TokenResult.AuthenticationFailed => ExecutionState.AuthenticationFailed,
                 TokenResult.UnexpectedResponse => ExecutionState.UnexpectedResponse,
-                TokenResult.AcronisUnavailable => ExecutionState.AcronisRejected,
+                TokenResult.AcronisUnavailable => ExecutionState.ConnectivityFailed,
                 _ => ExecutionState.ConnectivityFailed,
             };
         }
@@ -74,7 +74,8 @@ public sealed class HttpAcronisTransport(
             return status switch
             {
                 DiscoveryStatus.AuthenticationFailed => ExecutionState.AuthenticationFailed,
-                DiscoveryStatus.AcronisRejected or DiscoveryStatus.AcronisUnavailable => ExecutionState.AcronisRejected,
+                DiscoveryStatus.AcronisRejected => ExecutionState.AcronisRejected,
+                DiscoveryStatus.AcronisUnavailable => ExecutionState.ConnectivityFailed,
                 DiscoveryStatus.UnexpectedResponse or DiscoveryStatus.InvalidDataCenterUrl => ExecutionState.UnexpectedResponse,
                 _ => ExecutionState.ConnectivityFailed,
             };
