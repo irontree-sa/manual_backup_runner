@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Reflection;
 using AcronisBackupTrigger;
 
 namespace AcronisBackupTrigger.Tests;
@@ -8,26 +7,24 @@ public sealed class RotatingLogTests : IDisposable
 {
     private readonly string directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
 
-    // The named semaphore is a single static shared by every RotatingLog instance in
-    // the process, so holding it here simulates another process (or a killed process
-    // that abandoned the lock) without needing a second executable.
-    private static readonly Semaphore LogLock = (Semaphore)typeof(RotatingLog)
-        .GetField("LogLock", BindingFlags.NonPublic | BindingFlags.Static)!
-        .GetValue(null)!;
+    // A single shared semaphore injected into every RotatingLog under test, so
+    // holding it here simulates another process (or a killed process that abandoned
+    // the lock) without needing a second executable.
+    private readonly Semaphore logLock = new(1, 1);
 
     [Fact]
     public void Write_skips_the_audit_line_when_the_lock_is_held()
     {
-        var log = new RotatingLog(directory);
+        var log = new RotatingLog(directory, lockFactory: () => logLock);
 
-        LogLock.WaitOne();
+        logLock.WaitOne();
         try
         {
             log.Write("run: exit=0 outcome=ObservedRunning");
         }
         finally
         {
-            LogLock.Release();
+            logLock.Release();
         }
 
         Assert.False(File.Exists(Path.Combine(directory, "trigger.log")),
@@ -37,9 +34,9 @@ public sealed class RotatingLogTests : IDisposable
     [Fact]
     public void Write_returns_promptly_when_the_lock_is_held()
     {
-        var log = new RotatingLog(directory);
+        var log = new RotatingLog(directory, lockFactory: () => logLock);
 
-        LogLock.WaitOne();
+        logLock.WaitOne();
         try
         {
             var stopwatch = Stopwatch.StartNew();
@@ -53,14 +50,14 @@ public sealed class RotatingLogTests : IDisposable
         }
         finally
         {
-            LogLock.Release();
+            logLock.Release();
         }
     }
 
     [Fact]
     public void Write_serializes_concurrent_writes_without_corruption()
     {
-        var log = new RotatingLog(directory, maxBytes: 64 * 1024);
+        var log = new RotatingLog(directory, maxBytes: 64 * 1024, lockFactory: () => logLock);
 
         var writers = Enumerable.Range(0, 8)
             .Select(i => Task.Run(() =>
@@ -77,8 +74,34 @@ public sealed class RotatingLogTests : IDisposable
         Assert.All(lines, line => Assert.Matches(@"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z writer \d+ entry \d+$", line));
     }
 
+    [Fact]
+    public void Write_skips_the_audit_line_when_lock_creation_fails()
+    {
+        var log = new RotatingLog(directory, lockFactory: () => throw new UnauthorizedAccessException("denied"));
+
+        log.Write("run: exit=0 outcome=ObservedRunning");
+
+        Assert.False(File.Exists(Path.Combine(directory, "trigger.log")),
+            "a lock that cannot be created must skip the write, not throw");
+    }
+
+    [Fact]
+    public void Write_skips_the_audit_line_when_lock_creation_throws_type_initialization()
+    {
+        // A static initializer failure surfaces as TypeInitializationException; the
+        // lazy factory must treat it as a skipped audit line, not a crash.
+        var log = new RotatingLog(directory, lockFactory: () => throw new TypeInitializationException(
+            "RotatingLog", new UnauthorizedAccessException("denied")));
+
+        log.Write("run: exit=0 outcome=ObservedRunning");
+
+        Assert.False(File.Exists(Path.Combine(directory, "trigger.log")),
+            "a wrapped lock-creation failure must skip the write, not throw");
+    }
+
     public void Dispose()
     {
+        logLock.Dispose();
         if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
     }
 }
