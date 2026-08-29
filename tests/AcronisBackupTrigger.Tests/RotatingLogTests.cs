@@ -113,6 +113,29 @@ public sealed class RotatingLogTests : IDisposable
             "a named semaphore that cannot be opened must skip the write, not throw");
     }
 
+    [Fact]
+    public void Write_swallows_semaphore_full_exception_when_release_fails()
+    {
+        var semaphore = new Semaphore(1, 1);
+        var log = new RotatingLog(directory, lockFactory: () => semaphore);
+
+        // A background thread waits for Write to acquire the lock (count drops to
+        // 0), then releases it once so Write's own Release() finds the count already
+        // at its maximum and throws SemaphoreFullException.
+        var releaser = Task.Run(() =>
+        {
+            while (semaphore.WaitOne(0))
+                semaphore.Release();
+            semaphore.Release();
+        });
+
+        log.Write("run: exit=0 outcome=ObservedRunning");
+
+        releaser.Wait();
+        Assert.True(File.Exists(Path.Combine(directory, "trigger.log")),
+            "a release failure must not prevent the audit line from being written");
+    }
+
     public void Dispose()
     {
         logLock.Dispose();
