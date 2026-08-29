@@ -288,7 +288,7 @@ public sealed class CommandHost(
 
         var exit = result.Outcome switch
         {
-            TriggerOutcome.ObservedRunning => ExitCodes.Success,
+            TriggerOutcome.ObservedRunning or TriggerOutcome.CompletedSynchronously => ExitCodes.Success,
             TriggerOutcome.AlreadyRunning => ExitCodes.AlreadyRunning,
             TriggerOutcome.AcceptedNotObserved => ExitCodes.AcceptedNotObserved,
             TriggerOutcome.TargetNotConfigured => ExitCodes.RunUnavailable,

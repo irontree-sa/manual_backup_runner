@@ -24,19 +24,22 @@ public sealed class BackupTriggerTests
         Assert.Equal(1, transport.StartCount);
         Assert.NotEmpty(delays);
     }
-
     [Fact]
-    public async Task Run_accepts_a_synchronously_completed_start_request()
+    public async Task Run_reports_a_synchronously_completed_start_without_polling()
     {
         var transport = new ScriptedTransport
         {
-            States = [ExecutionState.Idle, ExecutionState.Running],
+            States = [ExecutionState.Idle],
             Start = StartOutcome.CompletedSynchronously,
         };
+        var delays = new List<TimeSpan>();
+        var pending = new RecordingPendingStore();
 
-        var result = await Trigger(transport).RunAsync(Configured, CancellationToken.None);
+        var result = await Trigger(transport, delays, pending: pending).RunAsync(Configured, CancellationToken.None);
 
-        Assert.Equal(TriggerOutcome.ObservedRunning, result.Outcome);
+        Assert.Equal(TriggerOutcome.CompletedSynchronously, result.Outcome);
+        Assert.Empty(delays);
+        Assert.Null(pending.Marked);
     }
 
     [Fact]

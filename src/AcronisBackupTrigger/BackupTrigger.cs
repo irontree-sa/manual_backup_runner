@@ -49,6 +49,7 @@ public enum TriggerOutcome
     OutcomeUnknown,
     StartOutstanding,
     UnexpectedResponse,
+    CompletedSynchronously,
     TotalTimeout,
 }
 
@@ -109,6 +110,13 @@ public sealed class BackupTrigger(
             case StartOutcome.NotSent:
                 pendingStarts.Clear();
                 return new TriggerResult(TriggerOutcome.ConnectivityFailed, "Acronis could not be reached, so no start request was sent.");
+            case StartOutcome.CompletedSynchronously:
+                // Acronis finished the request before replying, so polling for a
+                // running state would only burn the observation window.
+                pendingStarts.Clear();
+                return new TriggerResult(
+                    TriggerOutcome.CompletedSynchronously,
+                    $"Acronis completed the request for {configuration.PolicyName} on {configuration.ResourceName} immediately. Check the Acronis console for the backup result.");
             case StartOutcome.OutcomeUnknown:
                 return new TriggerResult(
                     TriggerOutcome.OutcomeUnknown,
