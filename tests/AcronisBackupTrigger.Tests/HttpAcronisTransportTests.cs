@@ -186,6 +186,38 @@ public sealed class HttpAcronisTransportTests
         Assert.Equal(6, handler.Attempts);
         Assert.Equal(4, delays.Count);
     }
+    [Fact]
+    public async Task GetExecutionState_maps_repeated_token_unavailability_to_connectivity_failure()
+    {
+        var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        using var client = new HttpClient(handler);
+        var delays = new List<TimeSpan>();
+
+        var state = await Transport(client, delays).GetExecutionStateAsync(
+            Config, "policy-1", "resource-1", CancellationToken.None);
+
+        Assert.Equal(ExecutionState.ConnectivityFailed, state);
+        Assert.Equal(5, handler.Attempts);
+        Assert.Equal(4, delays.Count);
+    }
+
+    [Fact]
+    public async Task GetExecutionState_maps_forbidden_state_to_rejection()
+    {
+        var handler = new StubHandler(attempt => attempt == 1
+            ? TokenResponse()
+            : new HttpResponseMessage(HttpStatusCode.Forbidden));
+        using var client = new HttpClient(handler);
+        var delays = new List<TimeSpan>();
+
+        var state = await Transport(client, delays).GetExecutionStateAsync(
+            Config, "policy-1", "resource-1", CancellationToken.None);
+
+        Assert.Equal(ExecutionState.AcronisRejected, state);
+        Assert.Equal(2, handler.Attempts);
+        Assert.Empty(delays);
+    }
+
 
 
     private static HttpAcronisTransport Transport(HttpClient client, List<TimeSpan>? delays = null) =>

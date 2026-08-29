@@ -80,6 +80,10 @@ or a bounded failure. One invocation is capped at 90 seconds.
 | `clear-pending` | Clear an outstanding start request after checking the Acronis console. |
 | `reset` | Remove local configuration. Revoke the API client in Acronis separately. |
 
+`setup`, `select-target`, `clear-pending`, and `reset` require an elevated
+Administrator session. Run them from an elevated PowerShell window; otherwise the
+trigger exits with code 21.
+
 ## Exit codes
 
 | Code | Meaning |
@@ -104,6 +108,7 @@ or a bounded failure. One invocation is capped at 90 seconds.
 | 18 | The invocation exceeded its 90 second budget. Applies to unattended runs; `setup` and `select-target` are not time limited. |
 | 19 | A previous start request is still outstanding. Run `clear-pending`. |
 | 20 | Acronis returned an unrecognised response. |
+| 21 | The command requires an elevated Administrator session. |
 
 Codes 12, 14, 18, and 19 mean a backup may already be running: check the Acronis
 console rather than re-running the trigger.
