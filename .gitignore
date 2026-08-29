@@ -1,5 +1,10 @@
 # Local Acronis client credentials; distribute config.example.json instead.
 config.json
 
+# .NET build outputs
+bin/
+obj/
+artifacts/
+
 # .scratch/ is this repository's local issue tracker and remains versioned.
 !.scratch/
