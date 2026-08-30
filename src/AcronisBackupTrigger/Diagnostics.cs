@@ -25,12 +25,14 @@ public interface IAcronisTransport
 
     Task<ExecutionState> GetExecutionStateAsync(
         TriggerConfiguration configuration,
-        ConfiguredTarget target,
+        string policyId,
+        string resourceId,
         CancellationToken cancellationToken);
 
     Task<StartOutcome> StartPolicyAsync(
         TriggerConfiguration configuration,
-        ConfiguredTarget target,
+        string policyId,
+        string resourceId,
         CancellationToken cancellationToken,
         Action? onSend = null,
         Action? onPreSendFailure = null);
@@ -73,12 +75,13 @@ public sealed class Diagnostics(IAcronisTransport transport)
 
         // Authentication alone is not a complete diagnostic: verify the selected
         // policy/resource is still valid and readable through the status path.
-        if (configuration.Target is not { } target)
+        if (configuration.PolicyId is not { Length: > 0 } policyId
+            || configuration.ResourceId is not { Length: > 0 } resourceId)
         {
             return new DiagnosticResult(DiagnosticOutcome.Authenticated);
         }
 
-        var state = await transport.GetExecutionStateAsync(configuration, target, cancellationToken);
+        var state = await transport.GetExecutionStateAsync(configuration, policyId, resourceId, cancellationToken);
         return new DiagnosticResult(state switch
         {
             ExecutionState.Idle => DiagnosticOutcome.TargetIdle,

@@ -89,7 +89,8 @@ public sealed class BackupTrigger(
 
     public async Task<TriggerResult> RunAsync(TriggerConfiguration configuration, CancellationToken cancellationToken)
     {
-        if (configuration.Target is not { } target)
+        if (configuration.PolicyId is not { Length: > 0 } policyId
+            || configuration.ResourceId is not { Length: > 0 } resourceId)
         {
             return new TriggerResult(
                 TriggerOutcome.TargetNotConfigured,
@@ -105,8 +106,8 @@ public sealed class BackupTrigger(
                 $"A start request sent at {pending:u} has an unknown outcome. Check the Acronis console, then run clear-pending to allow new runs.");
         }
 
-        var state = await transport.GetExecutionStateAsync(configuration, target, cancellationToken);
-        if (Guard(target, state) is { } refusal) return refusal;
+        var state = await transport.GetExecutionStateAsync(configuration, policyId, resourceId, cancellationToken);
+        if (Guard(configuration, state) is { } refusal) return refusal;
 
         // The durable pending marker is raised only at the actual PUT-send boundary, so
         // pre-send work (token acquisition, retry backoff) can never leave a false marker
@@ -114,7 +115,8 @@ public sealed class BackupTrigger(
         // pre-send failure and retains it once a request may have reached Acronis.
         var start = await transport.StartPolicyAsync(
             configuration,
-            target,
+            policyId,
+            resourceId,
             cancellationToken,
             onSend: () => pendingStarts.Mark(DateTimeOffset.UtcNow),
             onPreSendFailure: pendingStarts.Clear);
@@ -146,22 +148,22 @@ public sealed class BackupTrigger(
                 pendingStarts.Clear();
                 return new TriggerResult(
                     TriggerOutcome.CompletedSynchronously,
-                    $"Acronis completed the request for {target.PolicyName} on {target.ResourceName} immediately. Check the Acronis console for the backup result.");
+                    $"Acronis completed the request for {configuration.PolicyName} on {configuration.ResourceName} immediately. Check the Acronis console for the backup result.");
             case StartOutcome.OutcomeUnknown:
                 return new TriggerResult(
                     TriggerOutcome.OutcomeUnknown,
                     "The start request outcome is unknown and was deliberately not retried. Check the Acronis console, then run clear-pending.");
         }
 
-        return await ObserveStartAsync(target, cancellationToken);
+        return await ObserveStartAsync(configuration, policyId, resourceId, cancellationToken);
     }
 
-    private TriggerResult? Guard(ConfiguredTarget target, ExecutionState state) => state switch
+    private TriggerResult? Guard(TriggerConfiguration configuration, ExecutionState state) => state switch
     {
         ExecutionState.Idle => null,
         ExecutionState.Running => new TriggerResult(
             TriggerOutcome.AlreadyRunning,
-            $"{target.PolicyName} is already running on {target.ResourceName}. No new backup was requested."),
+            $"{configuration.PolicyName} is already running on {configuration.ResourceName}. No new backup was requested."),
         ExecutionState.AuthenticationFailed => new TriggerResult(
             TriggerOutcome.AuthenticationFailed,
             "Acronis rejected the API client credentials, so no backup was requested."),
@@ -177,7 +179,9 @@ public sealed class BackupTrigger(
     };
 
     private async Task<TriggerResult> ObserveStartAsync(
-        ConfiguredTarget target,
+        TriggerConfiguration configuration,
+        string policyId,
+        string resourceId,
         CancellationToken cancellationToken)
     {
         // Measure wall clock: token acquisition, HTTP latency, and status retries all
@@ -197,7 +201,7 @@ public sealed class BackupTrigger(
             try
             {
                 await delay(PollInterval < remaining ? PollInterval : remaining, observation.Token);
-                var state = await transport.GetExecutionStateAsync(configuration, target, observation.Token);
+                var state = await transport.GetExecutionStateAsync(configuration, policyId, resourceId, observation.Token);
 
                 // Re-check the deadline after the status call: a Running report that
                 // arrives after the window has expired is not a successful observation.
@@ -206,7 +210,7 @@ public sealed class BackupTrigger(
                     pendingStarts.Clear();
                     return new TriggerResult(
                         TriggerOutcome.ObservedRunning,
-                        $"{target.PolicyName} is running on {target.ResourceName}. Monitor completion in the Acronis console.");
+                        $"{configuration.PolicyName} is running on {configuration.ResourceName}. Monitor completion in the Acronis console.");
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -227,7 +231,7 @@ public sealed class BackupTrigger(
         pendingStarts.Clear();
         return new TriggerResult(
             TriggerOutcome.AcceptedNotObserved,
-            $"Acronis accepted the request, but {target.PolicyName} was not observed running within {window.TotalSeconds:0} seconds. Check the Acronis console.");
+            $"Acronis accepted the request, but {configuration.PolicyName} was not observed running within {window.TotalSeconds:0} seconds. Check the Acronis console.");
     }
 
     private static Func<TimeSpan> StopwatchElapsed()

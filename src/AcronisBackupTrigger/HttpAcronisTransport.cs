@@ -45,7 +45,8 @@ public sealed class HttpAcronisTransport(
 
     public async Task<ExecutionState> GetExecutionStateAsync(
         TriggerConfiguration configuration,
-        ConfiguredTarget target,
+        string policyId,
+        string resourceId,
         CancellationToken cancellationToken)
     {
         if (!TryResolveDataCenter(configuration, out var dataCenter)) return ExecutionState.ConnectivityFailed;
@@ -63,8 +64,8 @@ public sealed class HttpAcronisTransport(
         }
 
         var path = "api/policy_management/v4/applications"
-                   + $"?policy_id={Uri.EscapeDataString(target.PolicyId)}"
-                   + $"&context_id={Uri.EscapeDataString(target.ResourceId)}"
+                   + $"?policy_id={Uri.EscapeDataString(policyId)}"
+                   + $"&context_id={Uri.EscapeDataString(resourceId)}"
                    + "&execution_state=running";
 
         var (status, document) = await GetAsync(new Uri(dataCenter, path), token, cancellationToken);
@@ -91,7 +92,8 @@ public sealed class HttpAcronisTransport(
 
     public async Task<StartOutcome> StartPolicyAsync(
         TriggerConfiguration configuration,
-        ConfiguredTarget target,
+        string policyId,
+        string resourceId,
         CancellationToken cancellationToken,
         Action? onSend = null,
         Action? onPreSendFailure = null)
@@ -112,8 +114,8 @@ public sealed class HttpAcronisTransport(
         var payload = JsonSerializer.Serialize(new
         {
             state = "running",
-            policy_id = target.PolicyId,
-            context_ids = new[] { target.ResourceId },
+            policy_id = policyId,
+            context_ids = new[] { resourceId },
         });
         var runUri = new Uri(dataCenter, "api/policy_management/v4/applications/run");
 
