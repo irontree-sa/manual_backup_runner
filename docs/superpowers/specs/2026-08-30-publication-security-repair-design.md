@@ -1,6 +1,6 @@
 # Publication Security Repair Design
 
-**Status:** draft — awaiting review
+**Status:** approved
 
 ## Goal
 
