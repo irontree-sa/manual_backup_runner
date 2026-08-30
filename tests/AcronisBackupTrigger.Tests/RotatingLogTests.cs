@@ -71,7 +71,17 @@ public sealed class RotatingLogTests : IDisposable
 
         var lines = File.ReadAllLines(Path.Combine(directory, "trigger.log"));
         Assert.Equal(8 * 50, lines.Length);
-        Assert.All(lines, line => Assert.Matches(@"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z writer \d+ entry \d+$", line));
+        foreach (var expected in Enumerable.Range(0, 8).SelectMany(i => Enumerable.Range(0, 50).Select(n => $"writer {i} entry {n}")))
+            Assert.Contains(lines, line => line.EndsWith(expected, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Write_without_existing_protected_storage_does_not_create_a_log()
+    {
+        new RotatingLog(directory, lockFactory: () => logLock).Write("run: exit=0 outcome=ObservedRunning");
+
+        Assert.False(Directory.Exists(directory));
+        Assert.False(File.Exists(Path.Combine(directory, "trigger.log")));
     }
 
     [Fact]

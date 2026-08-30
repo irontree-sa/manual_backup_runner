@@ -279,6 +279,31 @@ public sealed class CommandHostTests : IDisposable
         Assert.Equal(ExitCodes.UnexpectedResponse, exit);
         Assert.Contains("UnexpectedResponse", error.ToString());
     }
+    [Fact]
+    public async Task Run_command_returns_the_trigger_exit_code_without_mapping_outcome()
+    {
+        var store = Store();
+        store.Save(new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "secret",
+            new ConfiguredTarget("policy-1", "Daily", "resource-1", "SERVER-01")));
+
+        var host = new CommandHost(
+            store,
+            () => throw new InvalidOperationException("transport must not be constructed"),
+            new StringReader(""),
+            output,
+            error,
+            () => "typed-secret",
+            trigger: new StubTrigger(new TriggerExecutionResult(TriggerOutcome.AcronisRejected, ExitCodes.AcronisRejected, "rejected")));
+
+        Assert.Equal(ExitCodes.AcronisRejected, await host.RunAsync([]));
+    }
+
+    private sealed class StubTrigger(TriggerExecutionResult result) : ITrigger
+    {
+        public Task<TriggerExecutionResult> RunAsync(TriggerConfiguration configuration, CancellationToken cancellationToken) =>
+            Task.FromResult(result);
+    }
+
 
     private sealed class MutableClock
     {
