@@ -142,6 +142,7 @@ public sealed class CommandHost(
         output.WriteLine();
 
         var credentials = new TriggerConfiguration(url, clientId, secret);
+        store.EnsureProtectedStorage();
         return await ChooseAndSaveTargetAsync(credentials, cancellationToken);
     }
 

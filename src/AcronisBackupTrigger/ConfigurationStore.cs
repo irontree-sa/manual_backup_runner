@@ -55,14 +55,25 @@ public sealed class ConfigurationStore(string directory, ISecretProtector protec
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ResourceId = null,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ResourceName = null);
 
+    /// <summary>
+    /// Creates the protected storage directory and, on Windows, restricts its ACL
+    /// to SYSTEM and the current administrator. Called before elevated setup performs
+    /// network discovery so the directory is protected before any configuration is
+    /// written, and again on every save.
+    /// </summary>
+    public void EnsureProtectedStorage()
+    {
+        Directory.CreateDirectory(directory);
+        if (OperatingSystem.IsWindows()) Restrict(new DirectoryInfo(directory));
+    }
+
     public void Save(TriggerConfiguration configuration)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(configuration.DataCenterUrl);
         ArgumentException.ThrowIfNullOrWhiteSpace(configuration.ClientId);
         ArgumentException.ThrowIfNullOrWhiteSpace(configuration.ClientSecret);
 
-        Directory.CreateDirectory(directory);
-        if (OperatingSystem.IsWindows()) Restrict(new DirectoryInfo(directory));
+        EnsureProtectedStorage();
 
         var plaintext = JsonSerializer.SerializeToUtf8Bytes(new StoredConfiguration(
             configuration.DataCenterUrl,
