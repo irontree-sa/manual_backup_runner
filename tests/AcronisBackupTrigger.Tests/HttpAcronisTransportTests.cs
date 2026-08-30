@@ -6,6 +6,7 @@ namespace AcronisBackupTrigger.Tests;
 public sealed class HttpAcronisTransportTests
 {
     private static readonly TriggerConfiguration Config = new("https://example.test", "id", "secret");
+    private static readonly ConfiguredTarget Target = new("policy-1", "Windows Backup", "resource-1", "SERVER-01");
 
     private static HttpResponseMessage TokenResponse() => new(HttpStatusCode.OK)
     {
@@ -180,7 +181,7 @@ public sealed class HttpAcronisTransportTests
         var delays = new List<TimeSpan>();
 
         var state = await Transport(client, delays).GetExecutionStateAsync(
-            Config, "policy-1", "resource-1", CancellationToken.None);
+            Config, Target, CancellationToken.None);
 
         Assert.Equal(ExecutionState.ConnectivityFailed, state);
         Assert.Equal(6, handler.Attempts);
@@ -194,7 +195,7 @@ public sealed class HttpAcronisTransportTests
         var delays = new List<TimeSpan>();
 
         var state = await Transport(client, delays).GetExecutionStateAsync(
-            Config, "policy-1", "resource-1", CancellationToken.None);
+            Config, Target, CancellationToken.None);
 
         Assert.Equal(ExecutionState.ConnectivityFailed, state);
         Assert.Equal(5, handler.Attempts);
@@ -211,7 +212,7 @@ public sealed class HttpAcronisTransportTests
         var delays = new List<TimeSpan>();
 
         var state = await Transport(client, delays).GetExecutionStateAsync(
-            Config, "policy-1", "resource-1", CancellationToken.None);
+            Config, Target, CancellationToken.None);
 
         Assert.Equal(ExecutionState.AcronisRejected, state);
         Assert.Equal(2, handler.Attempts);
@@ -225,7 +226,7 @@ public sealed class HttpAcronisTransportTests
             : new HttpResponseMessage(HttpStatusCode.Accepted));
         using var client = new HttpClient(handler);
 
-        await Transport(client).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None);
+        await Transport(client).StartPolicyAsync(Config, Target, CancellationToken.None);
 
         var request = handler.Requests[1];
         Assert.Equal(HttpMethod.Put, request.Method);
@@ -245,7 +246,7 @@ public sealed class HttpAcronisTransportTests
             : new HttpResponseMessage(status));
         using var client = new HttpClient(handler);
 
-        Assert.Equal(expected, await Transport(client).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None));
+        Assert.Equal(expected, await Transport(client).StartPolicyAsync(Config, Target, CancellationToken.None));
         Assert.Equal(2, handler.Attempts);
     }
 
@@ -257,7 +258,7 @@ public sealed class HttpAcronisTransportTests
             : new HttpResponseMessage(HttpStatusCode.Unauthorized));
         using var client = new HttpClient(handler);
 
-        Assert.Equal(StartOutcome.AuthenticationFailed, await Transport(client).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None));
+        Assert.Equal(StartOutcome.AuthenticationFailed, await Transport(client).StartPolicyAsync(Config, Target, CancellationToken.None));
     }
 
     [Fact]
@@ -268,7 +269,7 @@ public sealed class HttpAcronisTransportTests
             : new HttpResponseMessage(HttpStatusCode.Forbidden));
         using var client = new HttpClient(handler);
 
-        Assert.Equal(StartOutcome.Rejected, await Transport(client).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None));
+        Assert.Equal(StartOutcome.Rejected, await Transport(client).StartPolicyAsync(Config, Target, CancellationToken.None));
     }
     [Fact]
     public async Task StartPolicy_maps_an_undocumented_2xx_to_unexpected_response_after_send()
@@ -278,7 +279,7 @@ public sealed class HttpAcronisTransportTests
             : new HttpResponseMessage(HttpStatusCode.OK));
         using var client = new HttpClient(handler);
 
-        Assert.Equal(StartOutcome.UnexpectedResponseAfterSend, await Transport(client).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None));
+        Assert.Equal(StartOutcome.UnexpectedResponseAfterSend, await Transport(client).StartPolicyAsync(Config, Target, CancellationToken.None));
     }
 
     [Fact]
@@ -290,7 +291,7 @@ public sealed class HttpAcronisTransportTests
         });
         using var client = new HttpClient(handler);
 
-        Assert.Equal(StartOutcome.UnexpectedResponse, await Transport(client).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None));
+        Assert.Equal(StartOutcome.UnexpectedResponse, await Transport(client).StartPolicyAsync(Config, Target, CancellationToken.None));
     }
 
     [Fact]
@@ -304,7 +305,7 @@ public sealed class HttpAcronisTransportTests
         var preSendFailures = 0;
 
         var result = await Transport(client).StartPolicyAsync(
-            Config, "policy-1", "resource-1", CancellationToken.None,
+            Config, Target, CancellationToken.None,
             onSend: () => sends++,
             onPreSendFailure: () => preSendFailures++);
 
@@ -326,7 +327,7 @@ public sealed class HttpAcronisTransportTests
         using var client = new HttpClient(handler);
         var delays = new List<TimeSpan>();
 
-        var result = await Transport(client, delays).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None);
+        var result = await Transport(client, delays).StartPolicyAsync(Config, Target, CancellationToken.None);
 
         Assert.Equal(StartOutcome.OutcomeUnknown, result);
         Assert.Equal(2, handler.Attempts);
@@ -342,7 +343,7 @@ public sealed class HttpAcronisTransportTests
         using var client = new HttpClient(handler);
         var delays = new List<TimeSpan>();
 
-        var result = await Transport(client, delays).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None);
+        var result = await Transport(client, delays).StartPolicyAsync(Config, Target, CancellationToken.None);
 
         Assert.Equal(StartOutcome.OutcomeUnknown, result);
         Assert.Equal(2, handler.Attempts);
@@ -360,7 +361,7 @@ public sealed class HttpAcronisTransportTests
         await cancellation.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => Transport(client).StartPolicyAsync(Config, "policy-1", "resource-1", cancellation.Token));
+            () => Transport(client).StartPolicyAsync(Config, Target, cancellation.Token));
     }
 
     [Theory]
@@ -375,7 +376,7 @@ public sealed class HttpAcronisTransportTests
         using var client = new HttpClient(handler);
         var delays = new List<TimeSpan>();
 
-        var result = await Transport(client, delays).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None);
+        var result = await Transport(client, delays).StartPolicyAsync(Config, Target, CancellationToken.None);
 
         Assert.Equal(StartOutcome.NotSent, result);
         Assert.Equal(6, handler.Attempts);
@@ -390,7 +391,7 @@ public sealed class HttpAcronisTransportTests
             : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"items":[]}""") });
         using var client = new HttpClient(handler);
 
-        await Transport(client).GetExecutionStateAsync(Config, "policy-1", "resource-1", CancellationToken.None);
+        await Transport(client).GetExecutionStateAsync(Config, Target, CancellationToken.None);
 
         var request = handler.Requests[1];
         Assert.Equal(HttpMethod.Get, request.Method);

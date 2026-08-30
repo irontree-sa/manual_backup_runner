@@ -72,10 +72,10 @@ public sealed class TargetSelectionTests : IDisposable
 
         Assert.Equal(ExitCodes.Success, exit);
         var saved = store.Load()!;
-        Assert.Equal(Hourly.Id, saved.PolicyId);
-        Assert.Equal(Hourly.Name, saved.PolicyName);
-        Assert.Equal(Web.Id, saved.ResourceId);
-        Assert.Equal(Web.Name, saved.ResourceName);
+        Assert.Equal(Hourly.Id, saved.Target!.PolicyId);
+        Assert.Equal(Hourly.Name, saved.Target.PolicyName);
+        Assert.Equal(Web.Id, saved.Target.ResourceId);
+        Assert.Equal(Web.Name, saved.Target.ResourceName);
         Assert.Equal([Hourly.Id], transport.RequestedPolicyIds);
     }
 
@@ -147,8 +147,8 @@ public sealed class TargetSelectionTests : IDisposable
 
         Assert.Equal(ExitCodes.Success, exit);
         var saved = store.Load()!;
-        Assert.Equal(Hourly.Id, saved.PolicyId);
-        Assert.Equal(Web.Id, saved.ResourceId);
+        Assert.Equal(Hourly.Id, saved.Target!.PolicyId);
+        Assert.Equal(Web.Id, saved.Target.ResourceId);
         Assert.Equal("secret", saved.ClientSecret);
     }
 
@@ -195,7 +195,7 @@ public sealed class TargetSelectionTests : IDisposable
 
     private static TriggerConfiguration Configured() => new(
         "https://eu2.acronis.cloud", "client-id", "secret",
-        Daily.Id, Daily.Name, Sql.Id, Sql.Name);
+        new ConfiguredTarget(Daily.Id, Daily.Name, Sql.Id, Sql.Name));
 
     private ConfigurationStore Store() => new(directory, new ReversingProtector());
 

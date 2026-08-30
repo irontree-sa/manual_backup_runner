@@ -133,8 +133,8 @@ public sealed class CommandHost(
             if (existing is not null)
             {
                 output.WriteLine($"Current configuration: {existing.DataCenterUrl} / {existing.ClientId}");
-                if (existing.PolicyId is not null)
-                    output.WriteLine($"Current target: {existing.PolicyName} ({existing.PolicyId}) on {existing.ResourceName} ({existing.ResourceId})");
+                if (existing.Target is { } target)
+                    output.WriteLine($"Current target: {target.PolicyName} ({target.PolicyId}) on {target.ResourceName} ({target.ResourceId})");
             }
             else
             {
@@ -165,9 +165,9 @@ public sealed class CommandHost(
     {
         if (Required() is not { } configuration) return ExitCodes.ConfigurationMissing;
 
-        if (configuration.PolicyId is not null)
+        if (configuration.Target is { } target)
         {
-            output.WriteLine($"Current target: {configuration.PolicyName} ({configuration.PolicyId}) on {configuration.ResourceName} ({configuration.ResourceId})");
+            output.WriteLine($"Current target: {target.PolicyName} ({target.PolicyId}) on {target.ResourceName} ({target.ResourceId})");
             output.Write("Type REPLACE to choose a different target: ");
             if (!string.Equals(input.ReadLine(), "REPLACE", StringComparison.Ordinal))
             {
@@ -207,10 +207,7 @@ public sealed class CommandHost(
 
         store.Save(credentials with
         {
-            PolicyId = policy.Id,
-            PolicyName = policy.Name,
-            ResourceId = resource.Id,
-            ResourceName = resource.Name,
+            Target = new ConfiguredTarget(policy.Id, policy.Name, resource.Id, resource.Name),
         });
 
         output.WriteLine($"Configuration saved. Target: {policy.Name} ({policy.Id}) on {resource.Name} ({resource.Id}).");
@@ -249,13 +246,13 @@ public sealed class CommandHost(
         if (result.Outcome is not (DiagnosticOutcome.Authenticated or DiagnosticOutcome.TargetIdle or DiagnosticOutcome.TargetRunning))
             return ExitCodes.DiagnosticsFailed;
 
-        if (configuration.PolicyId is null)
+        if (configuration.Target is not { } target)
         {
             output.WriteLine("No protection policy is selected. Run setup to choose a target.");
             return ExitCodes.Success;
         }
 
-        output.WriteLine($"Target: {configuration.PolicyName} ({configuration.PolicyId}) on {configuration.ResourceName} ({configuration.ResourceId}).");
+        output.WriteLine($"Target: {target.PolicyName} ({target.PolicyId}) on {target.ResourceName} ({target.ResourceId}).");
         return ExitCodes.Success;
     }
 
@@ -276,16 +273,16 @@ public sealed class CommandHost(
     {
         if (Required() is not { } configuration) return ExitCodes.ConfigurationMissing;
 
-        if (configuration.PolicyId is null)
+        if (configuration.Target is not { } target)
         {
             error.WriteLine("No protection policy is configured. Run setup to select one.");
             return ExitCodes.ConfigurationMissing;
         }
 
-        var resources = await transportFactory().ListResourcesAsync(configuration, configuration.PolicyId, cancellationToken);
+        var resources = await transportFactory().ListResourcesAsync(configuration, target.PolicyId, cancellationToken);
         if (resources.Status != DiscoveryStatus.Succeeded) return ReportDiscoveryFailure("protected resources", resources.Status);
 
-        output.WriteLine($"Protected resources for {configuration.PolicyName} ({configuration.PolicyId}):");
+        output.WriteLine($"Protected resources for {target.PolicyName} ({target.PolicyId}):");
         foreach (var resource in resources.Items) output.WriteLine($"  {resource.Name} ({resource.Id})");
         if (resources.Items.Count == 0) output.WriteLine("  none");
         return ExitCodes.Success;

@@ -6,7 +6,7 @@ public sealed class BackupTriggerTests
 {
     private static readonly TriggerConfiguration Configured = new(
         "https://eu2.acronis.cloud", "client-id", "secret",
-        "policy-1", "Windows Backup", "resource-1", "SERVER-01");
+        new ConfiguredTarget("policy-1", "Windows Backup", "resource-1", "SERVER-01"));
 
     [Fact]
     public async Task Run_succeeds_only_once_the_policy_is_observed_running()
@@ -101,13 +101,11 @@ public sealed class BackupTriggerTests
         Assert.Equal(0, transport.StartCount);
     }
 
-    [Theory]
-    [InlineData(null, "resource-1")]
-    [InlineData("policy-1", null)]
-    public async Task Run_requires_a_configured_policy_and_resource(string? policyId, string? resourceId)
+    [Fact]
+    public async Task Run_requires_a_configured_target()
     {
         var transport = new ScriptedTransport { States = [ExecutionState.Idle] };
-        var configuration = Configured with { PolicyId = policyId, ResourceId = resourceId };
+        var configuration = Configured with { Target = null };
 
         var result = await Trigger(transport).RunAsync(configuration, CancellationToken.None);
 
@@ -271,12 +269,11 @@ public sealed class BackupTriggerTests
             Task.FromResult(new DiscoveryResult<AcronisPolicy>(DiscoveryStatus.Succeeded, []));
         public Task<DiscoveryResult<AcronisResource>> ListResourcesAsync(TriggerConfiguration configuration, string policyId, CancellationToken cancellationToken) =>
             Task.FromResult(new DiscoveryResult<AcronisResource>(DiscoveryStatus.Succeeded, []));
-        public Task<ExecutionState> GetExecutionStateAsync(TriggerConfiguration configuration, string policyId, string resourceId, CancellationToken cancellationToken) =>
+        public Task<ExecutionState> GetExecutionStateAsync(TriggerConfiguration configuration, ConfiguredTarget target, CancellationToken cancellationToken) =>
             Task.FromResult(ExecutionState.Idle);
-        public Task<StartOutcome> StartPolicyAsync(TriggerConfiguration configuration, string policyId, string resourceId, CancellationToken cancellationToken, Action? onSend = null, Action? onPreSendFailure = null) =>
+        public Task<StartOutcome> StartPolicyAsync(TriggerConfiguration configuration, ConfiguredTarget target, CancellationToken cancellationToken, Action? onSend = null, Action? onPreSendFailure = null) =>
             throw new OperationCanceledException(cancellationToken);
     }
-
     private sealed class PostSendCancellingTransport : IAcronisTransport
     {
         public Task<TokenResult> RequestTokenAsync(TriggerConfiguration configuration, CancellationToken cancellationToken) =>
@@ -285,9 +282,9 @@ public sealed class BackupTriggerTests
             Task.FromResult(new DiscoveryResult<AcronisPolicy>(DiscoveryStatus.Succeeded, []));
         public Task<DiscoveryResult<AcronisResource>> ListResourcesAsync(TriggerConfiguration configuration, string policyId, CancellationToken cancellationToken) =>
             Task.FromResult(new DiscoveryResult<AcronisResource>(DiscoveryStatus.Succeeded, []));
-        public Task<ExecutionState> GetExecutionStateAsync(TriggerConfiguration configuration, string policyId, string resourceId, CancellationToken cancellationToken) =>
+        public Task<ExecutionState> GetExecutionStateAsync(TriggerConfiguration configuration, ConfiguredTarget target, CancellationToken cancellationToken) =>
             Task.FromResult(ExecutionState.Idle);
-        public Task<StartOutcome> StartPolicyAsync(TriggerConfiguration configuration, string policyId, string resourceId, CancellationToken cancellationToken, Action? onSend = null, Action? onPreSendFailure = null)
+        public Task<StartOutcome> StartPolicyAsync(TriggerConfiguration configuration, ConfiguredTarget target, CancellationToken cancellationToken, Action? onSend = null, Action? onPreSendFailure = null)
         {
             onSend?.Invoke();
             throw new OperationCanceledException(cancellationToken);
@@ -318,8 +315,7 @@ public sealed class BackupTriggerTests
 
         public Task<ExecutionState> GetExecutionStateAsync(
             TriggerConfiguration configuration,
-            string policyId,
-            string resourceId,
+            ConfiguredTarget target,
             CancellationToken cancellationToken)
         {
             // The pre-start guard reports Idle; the observation status call simulates
@@ -332,8 +328,7 @@ public sealed class BackupTriggerTests
 
         public Task<StartOutcome> StartPolicyAsync(
             TriggerConfiguration configuration,
-            string policyId,
-            string resourceId,
+            ConfiguredTarget target,
             CancellationToken cancellationToken,
             Action? onSend = null,
             Action? onPreSendFailure = null)
@@ -391,8 +386,7 @@ public sealed class BackupTriggerTests
 
         public Task<ExecutionState> GetExecutionStateAsync(
             TriggerConfiguration configuration,
-            string policyId,
-            string resourceId,
+            ConfiguredTarget target,
             CancellationToken cancellationToken)
         {
             var state = States[Math.Min(stateReads, States.Length - 1)];
@@ -402,14 +396,13 @@ public sealed class BackupTriggerTests
 
         public Task<StartOutcome> StartPolicyAsync(
             TriggerConfiguration configuration,
-            string policyId,
-            string resourceId,
+            ConfiguredTarget target,
             CancellationToken cancellationToken,
             Action? onSend = null,
             Action? onPreSendFailure = null)
         {
             StartCount++;
-            StartedTargets.Add((policyId, resourceId));
+            StartedTargets.Add((target.PolicyId, target.ResourceId));
             onSend?.Invoke();
             return Task.FromResult(Start);
         }

@@ -26,7 +26,7 @@ public sealed class CommandHostTests : IDisposable
 
         Assert.Equal(ExitCodes.Success, exit);
         Assert.Equal(
-            new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "typed-secret", "policy-1", "Daily", "resource-1", "SERVER-01"),
+            new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "typed-secret", new ConfiguredTarget("policy-1", "Daily", "resource-1", "SERVER-01")),
             store.Load());
         Assert.DoesNotContain("typed-secret", output.ToString());
         Assert.DoesNotContain("typed-secret", error.ToString());
@@ -57,7 +57,7 @@ public sealed class CommandHostTests : IDisposable
 
         Assert.Equal(ExitCodes.Success, exit);
         Assert.Equal(
-            new TriggerConfiguration("https://us5.acronis.cloud", "new-id", "typed-secret", "policy-1", "Daily", "resource-1", "SERVER-01"),
+            new TriggerConfiguration("https://us5.acronis.cloud", "new-id", "typed-secret", new ConfiguredTarget("policy-1", "Daily", "resource-1", "SERVER-01")),
             store.Load());
     }
 
@@ -154,7 +154,7 @@ public sealed class CommandHostTests : IDisposable
     {
         var store = Store();
         store.Save(new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "secret",
-            "policy-1", "Daily", "resource-1", "SERVER-01"));
+            new ConfiguredTarget("policy-1", "Daily", "resource-1", "SERVER-01")));
         var transport = new FakeAcronisTransport
         {
             State = ExecutionState.Idle,
@@ -203,7 +203,7 @@ public sealed class CommandHostTests : IDisposable
     {
         var store = Store();
         store.Save(new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "secret",
-            "policy-1", "Daily", "resource-1", "SERVER-01"));
+            new ConfiguredTarget("policy-1", "Daily", "resource-1", "SERVER-01")));
         var transport = new FakeAcronisTransport
         {
             State = ExecutionState.Idle,
@@ -230,7 +230,7 @@ public sealed class CommandHostTests : IDisposable
     {
         var store = Store();
         store.Save(new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "secret",
-            "policy-1", "Daily", "resource-1", "SERVER-01"));
+            new ConfiguredTarget("policy-1", "Daily", "resource-1", "SERVER-01")));
         var transport = new FakeAcronisTransport
         {
             State = ExecutionState.Idle,
@@ -257,7 +257,7 @@ public sealed class CommandHostTests : IDisposable
     {
         var store = Store();
         store.Save(new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "secret",
-            "policy-1", "Daily", "resource-1", "SERVER-01"));
+            new ConfiguredTarget("policy-1", "Daily", "resource-1", "SERVER-01")));
         var transport = new FakeAcronisTransport
         {
             State = ExecutionState.Idle,
@@ -300,7 +300,7 @@ public sealed class CommandHostTests : IDisposable
     {
         var store = Store();
         store.Save(new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "secret",
-            "policy-1", "Daily", "resource-1", "SERVER-01"));
+            new ConfiguredTarget("policy-1", "Daily", "resource-1", "SERVER-01")));
         var transport = new FakeAcronisTransport { State = ExecutionState.AcronisRejected };
 
         var host = new CommandHost(
@@ -322,7 +322,7 @@ public sealed class CommandHostTests : IDisposable
     {
         var store = Store();
         store.Save(new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "secret",
-            "policy-1", "Daily", "resource-1", "SERVER-01"));
+            new ConfiguredTarget("policy-1", "Daily", "resource-1", "SERVER-01")));
         var transport = new FakeAcronisTransport { State = ExecutionState.Idle };
 
         var host = new CommandHost(
@@ -370,7 +370,7 @@ public sealed class CommandHostTests : IDisposable
     {
         var store = Store();
         store.Save(new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "secret",
-            "policy-1", "Daily", "resource-1", "SERVER-01"));
+            new ConfiguredTarget("policy-1", "Daily", "resource-1", "SERVER-01")));
         var transport = new CancellingTransport();
 
         var host = new CommandHost(
@@ -401,10 +401,10 @@ public sealed class CommandHostTests : IDisposable
         public Task<DiscoveryResult<AcronisResource>> ListResourcesAsync(TriggerConfiguration configuration, string policyId, CancellationToken cancellationToken) =>
             throw new OperationCanceledException(cancellationToken);
 
-        public Task<ExecutionState> GetExecutionStateAsync(TriggerConfiguration configuration, string policyId, string resourceId, CancellationToken cancellationToken) =>
+        public Task<ExecutionState> GetExecutionStateAsync(TriggerConfiguration configuration, ConfiguredTarget target, CancellationToken cancellationToken) =>
             throw new OperationCanceledException(cancellationToken);
 
-        public Task<StartOutcome> StartPolicyAsync(TriggerConfiguration configuration, string policyId, string resourceId, CancellationToken cancellationToken, Action? onSend = null, Action? onPreSendFailure = null) =>
+        public Task<StartOutcome> StartPolicyAsync(TriggerConfiguration configuration, ConfiguredTarget target, CancellationToken cancellationToken, Action? onSend = null, Action? onPreSendFailure = null) =>
             throw new OperationCanceledException(cancellationToken);
     }
 
