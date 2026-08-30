@@ -80,6 +80,7 @@ public sealed class RunCommandTests : IDisposable
     [Fact]
     public void Log_rotates_at_the_size_bound_and_keeps_one_previous_file()
     {
+        Directory.CreateDirectory(directory);
         var log = new RotatingLog(directory, maxBytes: 256);
 
         for (var index = 0; index < 40; index++) log.Write($"run: entry {index} padded with text to grow the file");
@@ -95,6 +96,7 @@ public sealed class RunCommandTests : IDisposable
     [Fact]
     public void Log_truncates_a_single_event_larger_than_the_bound()
     {
+        Directory.CreateDirectory(directory);
         var log = new RotatingLog(directory, maxBytes: 128);
 
         log.Write(new string('x', 4096));
@@ -107,6 +109,7 @@ public sealed class RunCommandTests : IDisposable
     [Fact]
     public void Log_refuses_credential_material()
     {
+        Directory.CreateDirectory(directory);
         var log = new RotatingLog(directory);
 
         log.Write("token response Bearer eyJ0abc");

@@ -57,6 +57,7 @@ public sealed class RotatingLogTests : IDisposable
     [Fact]
     public void Write_serializes_concurrent_writes_without_corruption()
     {
+        Directory.CreateDirectory(directory);
         var log = new RotatingLog(directory, maxBytes: 64 * 1024, lockFactory: () => logLock);
 
         var writers = Enumerable.Range(0, 8)
