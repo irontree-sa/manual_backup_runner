@@ -48,6 +48,26 @@ public sealed class CommandHostTests : IDisposable
     }
 
     [Fact]
+    public async Task Setup_creates_protected_storage_before_policy_discovery()
+    {
+        var store = Store();
+        var transport = new AssertingStorageTransport(directory);
+
+        var host = new CommandHost(
+            store,
+            () => transport,
+            new StringReader(string.Join(Environment.NewLine, ["https://eu2.acronis.cloud", "client-id"])),
+            output,
+            error,
+            () => "typed-secret",
+            UnusedTrigger());
+
+        var exit = await host.RunAsync(["setup"]);
+
+        Assert.Equal(ExitCodes.DiscoveryFailed, exit);
+    }
+
+    [Fact]
     public async Task Setup_replaces_existing_configuration_when_confirmed()
     {
         var store = Store();
@@ -473,6 +493,7 @@ public sealed class CommandHostTests : IDisposable
         var exit = await host.RunAsync([command], budget.Token);
 
         Assert.Equal(ExitCodes.TotalTimeout, exit);
+
         Assert.Contains("time budget", error.ToString());
     }
 
@@ -492,6 +513,40 @@ public sealed class CommandHostTests : IDisposable
 
         public Task<StartOutcome> StartPolicyAsync(TriggerConfiguration configuration, ConfiguredTarget target, CancellationToken cancellationToken, Action? onSend = null, Action? onPreSendFailure = null) =>
             throw new OperationCanceledException(cancellationToken);
+    }
+
+    private sealed class AssertingStorageTransport(string directory) : IAcronisTransport
+    {
+        public Task<TokenResult> RequestTokenAsync(TriggerConfiguration configuration, CancellationToken cancellationToken) =>
+            Task.FromResult(TokenResult.Authenticated);
+
+        public Task<DiscoveryResult<AcronisPolicy>> ListProtectionPoliciesAsync(
+            TriggerConfiguration configuration,
+            CancellationToken cancellationToken)
+        {
+            Assert.True(Directory.Exists(directory), "Protected storage must exist before policy discovery.");
+            return Task.FromResult(DiscoveryResult<AcronisPolicy>.Failed(DiscoveryStatus.ConnectivityFailed));
+        }
+
+        public Task<DiscoveryResult<AcronisResource>> ListResourcesAsync(
+            TriggerConfiguration configuration,
+            string policyId,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("resources must not be listed after a failed policy discovery");
+
+        public Task<ExecutionState> GetExecutionStateAsync(
+            TriggerConfiguration configuration,
+            ConfiguredTarget target,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("state must not be read during setup");
+
+        public Task<StartOutcome> StartPolicyAsync(
+            TriggerConfiguration configuration,
+            ConfiguredTarget target,
+            CancellationToken cancellationToken,
+            Action? onSend = null,
+            Action? onPreSendFailure = null) =>
+            throw new InvalidOperationException("start must not be invoked during setup");
     }
 
     private sealed class DeniedAdministratorGate : IAdministratorGate

@@ -30,6 +30,16 @@ public sealed class ConfigurationStoreTests : IDisposable
     }
 
     [Fact]
+    public void EnsureProtectedStorage_creates_directory()
+    {
+        var store = new ConfigurationStore(directory, new ReversingProtector());
+
+        store.EnsureProtectedStorage();
+
+        Assert.True(Directory.Exists(directory));
+    }
+
+    [Fact]
     public void Load_migrates_legacy_policy_and_resource_fields_to_target()
     {
         var legacy = """{"DataCenterUrl":"https://eu2.acronis.cloud","ClientId":"id","ClientSecret":"secret","PolicyId":"policy-1","PolicyName":"Daily","ResourceId":"resource-1","ResourceName":"SERVER-01"}""";
