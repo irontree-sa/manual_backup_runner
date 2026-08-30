@@ -153,7 +153,7 @@ public sealed class BackupTrigger(
                     "The start request outcome is unknown and was deliberately not retried. Check the Acronis console, then run clear-pending.");
         }
 
-        return await ObserveStartAsync(configuration, target, cancellationToken);
+        return await ObserveStartAsync(target, cancellationToken);
     }
 
     private TriggerResult? Guard(ConfiguredTarget target, ExecutionState state) => state switch
@@ -177,7 +177,6 @@ public sealed class BackupTrigger(
     };
 
     private async Task<TriggerResult> ObserveStartAsync(
-        TriggerConfiguration configuration,
         ConfiguredTarget target,
         CancellationToken cancellationToken)
     {
