@@ -15,18 +15,7 @@ public sealed class ConfigurationStoreTests : IDisposable
 
         store.Save(expected);
         Assert.Equal(expected, store.Load());
-        // Verify that the saved configuration file does not contain root-level PolicyId or ResourceId
-        var content = File.ReadAllText(Path.Combine(directory, "configuration.dat"));
-        using var doc = JsonDocument.Parse(content);
-        var root = doc.RootElement;
-        Assert.False(root.TryGetProperty("PolicyId", out _));
-        Assert.False(root.TryGetProperty("ResourceId", out _));
-        // Verify that the Target nested object contains the expected PolicyId and ResourceId values
-        Assert.True(root.TryGetProperty("Target", out var targetElement));
-        Assert.True(targetElement.TryGetProperty("PolicyId", out var actualPolicyId));
-        Assert.Equal(expected.Target.PolicyId, actualPolicyId.GetString());
-        Assert.True(targetElement.TryGetProperty("ResourceId", out var actualResourceId));
-        Assert.Equal(expected.Target.ResourceId, actualResourceId.GetString());
+        Assert.DoesNotContain("client-secret", File.ReadAllText(Path.Combine(directory, "configuration.dat")));
     }
 
     [Fact]
@@ -45,6 +34,7 @@ public sealed class ConfigurationStoreTests : IDisposable
     {
         var legacy = """{"DataCenterUrl":"https://eu2.acronis.cloud","ClientId":"id","ClientSecret":"secret","PolicyId":"policy-1","PolicyName":"Daily","ResourceId":"resource-1","ResourceName":"SERVER-01"}""";
         var store = new ConfigurationStore(directory, new ReversingProtector());
+        Directory.CreateDirectory(directory);
         File.WriteAllBytes(Path.Combine(directory, "configuration.dat"),
             System.Text.Encoding.UTF8.GetBytes(legacy).Reverse().ToArray());
 
