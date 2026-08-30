@@ -45,6 +45,7 @@ public void Load_migrates_legacy_policy_and_resource_fields_to_target()
 {
     var legacy = """{"DataCenterUrl":"https://eu2.acronis.cloud","ClientId":"id","ClientSecret":"secret","PolicyId":"policy-1","PolicyName":"Daily","ResourceId":"resource-1","ResourceName":"SERVER-01"}""";
     var store = new ConfigurationStore(directory, new ReversingProtector());
+    Directory.CreateDirectory(directory);
     File.WriteAllBytes(Path.Combine(directory, "configuration.dat"),
         System.Text.Encoding.UTF8.GetBytes(legacy).Reverse().ToArray());
 
@@ -59,9 +60,12 @@ public void Save_writes_target_without_legacy_policy_resource_fields()
         new ConfiguredTarget("policy-1", "Daily", "resource-1", "SERVER-01")));
 
     var stored = System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(Path.Combine(directory, "configuration.dat")).Reverse().ToArray());
-    Assert.Contains("\"Target\"", stored);
-    Assert.DoesNotContain("\"PolicyId\"", stored);
-    Assert.DoesNotContain("\"ResourceId\"", stored);
+    using var document = System.Text.Json.JsonDocument.Parse(stored);
+    var root = document.RootElement;
+    Assert.Equal("policy-1", root.GetProperty("Target").GetProperty("PolicyId").GetString());
+    Assert.Equal("resource-1", root.GetProperty("Target").GetProperty("ResourceId").GetString());
+    Assert.False(root.TryGetProperty("PolicyId", out _));
+    Assert.False(root.TryGetProperty("ResourceId", out _));
 }
 ```
 
