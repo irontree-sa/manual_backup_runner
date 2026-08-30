@@ -1,6 +1,6 @@
 # Release Hardening Design
 
-**Status:** draft — awaiting approval
+**Status:** approved
 
 ## Goal
 
