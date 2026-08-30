@@ -19,6 +19,30 @@ public sealed class ConfigurationStoreTests : IDisposable
     }
 
     [Fact]
+    public void Load_migrates_legacy_policy_and_resource_fields_to_target()
+    {
+        var legacy = """{"DataCenterUrl":"https://eu2.acronis.cloud","ClientId":"id","ClientSecret":"secret","PolicyId":"policy-1","PolicyName":"Daily","ResourceId":"resource-1","ResourceName":"SERVER-01"}""";
+        var store = new ConfigurationStore(directory, new ReversingProtector());
+        File.WriteAllBytes(Path.Combine(directory, "configuration.dat"),
+            System.Text.Encoding.UTF8.GetBytes(legacy).Reverse().ToArray());
+
+        Assert.Equal(new ConfiguredTarget("policy-1", "Daily", "resource-1", "SERVER-01"), store.Load()!.Target);
+    }
+
+    [Fact]
+    public void Save_writes_target_without_legacy_policy_resource_fields()
+    {
+        var store = new ConfigurationStore(directory, new ReversingProtector());
+        store.Save(new TriggerConfiguration("https://eu2.acronis.cloud", "id", "secret",
+            new ConfiguredTarget("policy-1", "Daily", "resource-1", "SERVER-01")));
+
+        var stored = System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(Path.Combine(directory, "configuration.dat")).Reverse().ToArray());
+        Assert.Contains("\"Target\"", stored);
+        Assert.DoesNotContain("\"PolicyId\"", stored);
+        Assert.DoesNotContain("\"ResourceId\"", stored);
+    }
+
+    [Fact]
     public void Reset_removes_saved_configuration()
     {
         var store = new ConfigurationStore(directory, new ReversingProtector());

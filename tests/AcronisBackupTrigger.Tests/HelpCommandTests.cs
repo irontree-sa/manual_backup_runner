@@ -15,10 +15,11 @@ public sealed class HelpCommandTests
             "https://tenant.example",
             "client-id-sentinel",
             "client-secret-sentinel",
-            "policy-id-sentinel",
-            "policy-name-sentinel",
-            "resource-id-123",
-            "resource-name-sentinel"));
+            new ConfiguredTarget(
+                "policy-id-sentinel",
+                "policy-name-sentinel",
+                "resource-id-123",
+                "resource-name-sentinel")));
 
         var output = new StringWriter();
         var error = new StringWriter();

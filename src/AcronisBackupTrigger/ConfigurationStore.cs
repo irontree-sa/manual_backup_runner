@@ -6,15 +6,27 @@ using System.Text.Json;
 
 namespace AcronisBackupTrigger;
 
+public sealed record ConfiguredTarget(string PolicyId, string PolicyName, string ResourceId, string ResourceName);
+
 public sealed record TriggerConfiguration(
     string DataCenterUrl,
     string ClientId,
     string ClientSecret,
-    string? PolicyId = null,
-    string? PolicyName = null,
-    string? ResourceId = null,
-    string? ResourceName = null);
+    ConfiguredTarget? Target = null);
 
+/// <summary>
+/// Persisted shape. Legacy installations stored the selected policy/resource as four
+/// positional fields; new saves store only the typed <see cref="ConfiguredTarget"/>.
+/// </summary>
+public sealed record StoredConfiguration(
+    string DataCenterUrl,
+    string ClientId,
+    string ClientSecret,
+    ConfiguredTarget? Target = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PolicyId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PolicyName = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ResourceId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ResourceName = null);
 public interface ISecretProtector
 {
     byte[] Protect(byte[] plaintext);
@@ -29,7 +41,6 @@ public sealed class ConfigurationUnreadableException(string message, Exception i
 
 public sealed class ConfigurationStore(string directory, ISecretProtector protector)
 {
-    private const string FileName = "configuration.dat";
     private readonly string path = Path.Combine(directory, FileName);
 
     public void Save(TriggerConfiguration configuration)
@@ -41,7 +52,11 @@ public sealed class ConfigurationStore(string directory, ISecretProtector protec
         Directory.CreateDirectory(directory);
         if (OperatingSystem.IsWindows()) Restrict(new DirectoryInfo(directory));
 
-        var plaintext = JsonSerializer.SerializeToUtf8Bytes(configuration);
+        var plaintext = JsonSerializer.SerializeToUtf8Bytes(new StoredConfiguration(
+            configuration.DataCenterUrl,
+            configuration.ClientId,
+            configuration.ClientSecret,
+            configuration.Target));
         byte[] ciphertext;
         try
         {
@@ -94,9 +109,16 @@ public sealed class ConfigurationStore(string directory, ISecretProtector protec
 
         try
         {
-            return JsonSerializer.Deserialize<TriggerConfiguration>(plaintext)
+            var stored = JsonSerializer.Deserialize<StoredConfiguration>(plaintext)
                 ?? throw new ConfigurationUnreadableException(
                     "Saved configuration is empty.", new InvalidDataException());
+
+            var target = stored.Target ?? MigrateLegacyTarget(stored);
+            return new TriggerConfiguration(
+                stored.DataCenterUrl,
+                stored.ClientId,
+                stored.ClientSecret,
+                target);
         }
         catch (JsonException exception)
         {
@@ -106,6 +128,21 @@ public sealed class ConfigurationStore(string directory, ISecretProtector protec
         {
             CryptographicOperations.ZeroMemory(plaintext);
         }
+    }
+
+    private static ConfiguredTarget? MigrateLegacyTarget(StoredConfiguration stored)
+    {
+        if (stored.PolicyId is not { Length: > 0 } policyId
+            || stored.ResourceId is not { Length: > 0 } resourceId)
+        {
+            return null;
+        }
+
+        return new ConfiguredTarget(
+            policyId,
+            stored.PolicyName ?? policyId,
+            resourceId,
+            stored.ResourceName ?? resourceId);
     }
 
     /// <summary>

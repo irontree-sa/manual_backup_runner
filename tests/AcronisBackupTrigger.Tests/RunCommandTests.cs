@@ -11,7 +11,7 @@ public sealed class RunCommandTests : IDisposable
 
     private static readonly TriggerConfiguration Configured = new(
         "https://eu2.acronis.cloud", "client-id", "secret",
-        "policy-1", "Windows Backup", "resource-1", "SERVER-01");
+        new ConfiguredTarget("policy-1", "Windows Backup", "resource-1", "SERVER-01"));
 
     [Theory]
     [InlineData(ExecutionState.Running, StartOutcome.Accepted, ExitCodes.AlreadyRunning)]
@@ -163,14 +163,14 @@ public sealed class RunCommandTests : IDisposable
         public Task<DiscoveryResult<AcronisResource>> ListResourcesAsync(TriggerConfiguration configuration, string policyId, CancellationToken cancellationToken) =>
             Task.FromResult(new DiscoveryResult<AcronisResource>(DiscoveryStatus.Succeeded, []));
 
-        public Task<ExecutionState> GetExecutionStateAsync(TriggerConfiguration configuration, string policyId, string resourceId, CancellationToken cancellationToken)
+        public Task<ExecutionState> GetExecutionStateAsync(TriggerConfiguration configuration, ConfiguredTarget target, CancellationToken cancellationToken)
         {
             var state = states[Math.Min(reads, states.Length - 1)];
             reads++;
             return Task.FromResult(state);
         }
 
-        public Task<StartOutcome> StartPolicyAsync(TriggerConfiguration configuration, string policyId, string resourceId, CancellationToken cancellationToken, Action? onSend = null, Action? onPreSendFailure = null) =>
+        public Task<StartOutcome> StartPolicyAsync(TriggerConfiguration configuration, ConfiguredTarget target, CancellationToken cancellationToken, Action? onSend = null, Action? onPreSendFailure = null) =>
             Task.FromResult(StartOutcome.Accepted);
     }
 
