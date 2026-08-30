@@ -42,6 +42,7 @@ public sealed class ConfigurationStore(string directory, ISecretProtector protec
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PolicyName = null,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ResourceId = null,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ResourceName = null);
+    private const string FileName = "configuration.dat";
     private readonly string path = Path.Combine(directory, FileName);
 
     public void Save(TriggerConfiguration configuration)
@@ -110,15 +111,15 @@ public sealed class ConfigurationStore(string directory, ISecretProtector protec
 
         try
         {
-            var stored = JsonSerializer.Deserialize<StoredConfiguration>(plaintext)
+            var deserialized = JsonSerializer.Deserialize<StoredConfiguration>(plaintext)
                 ?? throw new ConfigurationUnreadableException(
                     "Saved configuration is empty.", new InvalidDataException());
 
-            var target = stored.Target ?? MigrateLegacyTarget(stored);
+            var target = deserialized.Target ?? MigrateLegacyTarget(deserialized);
             return new TriggerConfiguration(
-                stored.DataCenterUrl,
-                stored.ClientId,
-                stored.ClientSecret,
+                deserialized.DataCenterUrl,
+                deserialized.ClientId,
+                deserialized.ClientSecret,
                 target);
         }
         catch (JsonException exception)
