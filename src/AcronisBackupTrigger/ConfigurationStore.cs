@@ -3,6 +3,7 @@ using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace AcronisBackupTrigger;
 
@@ -18,7 +19,7 @@ public sealed record TriggerConfiguration(
 /// Persisted shape. Legacy installations stored the selected policy/resource as four
 /// positional fields; new saves store only the typed <see cref="ConfiguredTarget"/>.
 /// </summary>
-public sealed record StoredConfiguration(
+private sealed record StoredConfiguration(
     string DataCenterUrl,
     string ClientId,
     string ClientSecret,
