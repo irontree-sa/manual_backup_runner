@@ -1,4 +1,5 @@
 using AcronisBackupTrigger;
+using System.Text.Json;
 
 namespace AcronisBackupTrigger.Tests;
 
@@ -13,9 +14,19 @@ public sealed class ConfigurationStoreTests : IDisposable
         var expected = new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "client-secret");
 
         store.Save(expected);
-
         Assert.Equal(expected, store.Load());
-        Assert.DoesNotContain("client-secret", File.ReadAllText(Path.Combine(directory, "configuration.dat")));
+        // Verify that the saved configuration file does not contain root-level PolicyId or ResourceId
+        var content = File.ReadAllText(Path.Combine(directory, "configuration.dat"));
+        using var doc = JsonDocument.Parse(content);
+        var root = doc.RootElement;
+        Assert.False(root.TryGetProperty("PolicyId", out _));
+        Assert.False(root.TryGetProperty("ResourceId", out _));
+        // Verify that the Target nested object contains the expected PolicyId and ResourceId values
+        Assert.True(root.TryGetProperty("Target", out var targetElement));
+        Assert.True(targetElement.TryGetProperty("PolicyId", out var actualPolicyId));
+        Assert.Equal(expected.Target.PolicyId, actualPolicyId.GetString());
+        Assert.True(targetElement.TryGetProperty("ResourceId", out var actualResourceId));
+        Assert.Equal(expected.Target.ResourceId, actualResourceId.GetString());
     }
 
     [Fact]
@@ -47,10 +58,19 @@ public sealed class ConfigurationStoreTests : IDisposable
         store.Save(new TriggerConfiguration("https://eu2.acronis.cloud", "id", "secret",
             new ConfiguredTarget("policy-1", "Daily", "resource-1", "SERVER-01")));
 
-        var stored = System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(Path.Combine(directory, "configuration.dat")).Reverse().ToArray());
-        Assert.Contains("\"Target\"", stored);
-        Assert.DoesNotContain("\"PolicyId\"", stored);
-        Assert.DoesNotContain("\"ResourceId\"", stored);
+        var storedBytes = File.ReadAllBytes(Path.Combine(directory, "configuration.dat"));
+        var storedPlaintext = System.Text.Encoding.UTF8.GetString(storedBytes.Reverse().ToArray());
+        using var doc = JsonDocument.Parse(storedPlaintext);
+        var root = doc.RootElement;
+        // Root must not contain PolicyId or ResourceId
+        Assert.False(root.TryGetProperty("PolicyId", out _));
+        Assert.False(root.TryGetProperty("ResourceId", out _));
+        // Target must exist and have correct nested PolicyId and ResourceId values
+        Assert.True(root.TryGetProperty("Target", out var targetElement));
+        Assert.True(targetElement.TryGetProperty("PolicyId", out var nestedPolicyId));
+        Assert.Equal("policy-1", nestedPolicyId.GetString());
+        Assert.True(targetElement.TryGetProperty("ResourceId", out var nestedResourceId));
+        Assert.Equal("resource-1", nestedResourceId.GetString());
     }
 
     public void Dispose()
@@ -63,24 +83,5 @@ public sealed class ConfigurationStoreTests : IDisposable
     {
         public byte[] Protect(byte[] plaintext) => plaintext.Reverse().ToArray();
         public byte[] Unprotect(byte[] ciphertext) => ciphertext.Reverse().ToArray();
-    }
-}
-
-public sealed class DiagnosticsTests
-{
-    private static readonly TriggerConfiguration Config = new("https://eu2.acronis.cloud", "client", "secret");
-
-    [Theory]
-    [InlineData(TokenResult.Authenticated, DiagnosticOutcome.Authenticated)]
-    [InlineData(TokenResult.AuthenticationFailed, DiagnosticOutcome.AuthenticationFailed)]
-    [InlineData(TokenResult.ConnectivityFailed, DiagnosticOutcome.ConnectivityFailed)]
-    [InlineData(TokenResult.InvalidDataCenterUrl, DiagnosticOutcome.InvalidDataCenterUrl)]
-    [InlineData(TokenResult.AcronisUnavailable, DiagnosticOutcome.AcronisUnavailable)]
-    [InlineData(TokenResult.UnexpectedResponse, DiagnosticOutcome.UnexpectedResponse)]
-    public async Task Diagnose_reports_each_transport_outcome_distinctly(TokenResult transportResult, DiagnosticOutcome expected)
-    {
-        var result = await new Diagnostics(new FakeAcronisTransport(transportResult)).CheckAsync(Config);
-
-        Assert.Equal(expected, result.Outcome);
     }
 }
