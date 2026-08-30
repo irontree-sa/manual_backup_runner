@@ -368,7 +368,8 @@ public sealed class BackupTriggerTests
     private static BackupTrigger Trigger(
         IAcronisTransport transport,
         List<TimeSpan>? delays = null,
-        IPendingStartStore? pending = null)
+        IPendingStartStore? pending = null,
+        TimeSpan? observationWindow = null)
     {
         var elapsed = TimeSpan.Zero;
         return new BackupTrigger(
@@ -390,6 +391,7 @@ public sealed class BackupTriggerTests
         public ExecutionState[] States { get; init; } = [ExecutionState.Idle];
         public StartOutcome Start { get; init; } = StartOutcome.Accepted;
         public int StartCount { get; private set; }
+        public List<(string PolicyId, string ResourceId)> StartedTargets { get; } = [];
         public int StateReads => stateReads;
 
         public Task<TokenResult> RequestTokenAsync(TriggerConfiguration configuration, CancellationToken cancellationToken) =>
