@@ -113,6 +113,24 @@ public sealed class BackupTriggerTests
         Assert.Equal(0, transport.StartCount);
     }
 
+    [Theory]
+    [InlineData("", "resource-1")]
+    [InlineData("policy-1", "")]
+    public async Task Run_requires_non_empty_execution_ids(string policyId, string resourceId)
+    {
+        var transport = new ScriptedTransport { States = [ExecutionState.Idle] };
+        var configuration = Configured with
+        {
+            Target = new ConfiguredTarget(policyId, "Windows Backup", resourceId, "SERVER-01"),
+        };
+
+        var result = await Trigger(transport).RunAsync(configuration, CancellationToken.None);
+
+        Assert.Equal(TriggerOutcome.TargetNotConfigured, result.Outcome);
+        Assert.Equal(0, transport.StartCount);
+        Assert.Equal(0, transport.StateReads);
+    }
+
     [Fact]
     public async Task Run_sends_the_configured_policy_and_resource()
     {
@@ -350,7 +368,6 @@ public sealed class BackupTriggerTests
     private static BackupTrigger Trigger(
         IAcronisTransport transport,
         List<TimeSpan>? delays = null,
-        TimeSpan? observationWindow = null,
         IPendingStartStore? pending = null)
     {
         var elapsed = TimeSpan.Zero;
@@ -373,7 +390,7 @@ public sealed class BackupTriggerTests
         public ExecutionState[] States { get; init; } = [ExecutionState.Idle];
         public StartOutcome Start { get; init; } = StartOutcome.Accepted;
         public int StartCount { get; private set; }
-        public List<(string PolicyId, string ResourceId)> StartedTargets { get; } = [];
+        public int StateReads => stateReads;
 
         public Task<TokenResult> RequestTokenAsync(TriggerConfiguration configuration, CancellationToken cancellationToken) =>
             Task.FromResult(TokenResult.Authenticated);

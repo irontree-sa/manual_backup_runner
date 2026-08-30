@@ -30,13 +30,16 @@ public sealed class FakeAcronisTransport(TokenResult tokenResult = TokenResult.A
 
     public ExecutionState State { get; init; } = ExecutionState.Idle;
     public StartOutcome Start { get; init; } = StartOutcome.Accepted;
-    public int StartCount { get; private set; }
+    public int StateReadCount { get; private set; }
 
     public Task<ExecutionState> GetExecutionStateAsync(
         TriggerConfiguration configuration,
         ConfiguredTarget target,
-        CancellationToken cancellationToken) =>
-        Task.FromResult(State);
+        CancellationToken cancellationToken)
+    {
+        StateReadCount++;
+        return Task.FromResult(State);
+    }
 
     public Task<StartOutcome> StartPolicyAsync(
         TriggerConfiguration configuration,

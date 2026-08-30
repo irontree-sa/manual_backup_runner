@@ -41,6 +41,24 @@ public sealed class ConfigurationStoreTests : IDisposable
         Assert.Equal(new ConfiguredTarget("policy-1", "Daily", "resource-1", "SERVER-01"), store.Load()!.Target);
     }
 
+    [Theory]
+    [InlineData("""{"DataCenterUrl":"https://eu2.acronis.cloud","ClientId":"id","ClientSecret":"secret","PolicyId":"","PolicyName":"Daily","ResourceId":"resource-1","ResourceName":"SERVER-01"}""")]
+    [InlineData("""{"DataCenterUrl":"https://eu2.acronis.cloud","ClientId":"id","ClientSecret":"secret","PolicyId":"policy-1","PolicyName":"","ResourceId":"resource-1","ResourceName":"SERVER-01"}""")]
+    [InlineData("""{"DataCenterUrl":"https://eu2.acronis.cloud","ClientId":"id","ClientSecret":"secret","PolicyId":"policy-1","PolicyName":"Daily","ResourceId":"","ResourceName":"SERVER-01"}""")]
+    [InlineData("""{"DataCenterUrl":"https://eu2.acronis.cloud","ClientId":"id","ClientSecret":"secret","PolicyId":"policy-1","PolicyName":"Daily","ResourceId":"resource-1","ResourceName":""}""")]
+    [InlineData("""{"DataCenterUrl":"https://eu2.acronis.cloud","ClientId":"id","ClientSecret":"secret","PolicyName":"Daily","ResourceId":"resource-1","ResourceName":"SERVER-01"}""")]
+    [InlineData("""{"DataCenterUrl":"https://eu2.acronis.cloud","ClientId":"id","ClientSecret":"secret","PolicyId":"policy-1","ResourceId":"resource-1","ResourceName":"SERVER-01"}""")]
+    [InlineData("""{"DataCenterUrl":"https://eu2.acronis.cloud","ClientId":"id","ClientSecret":"secret","PolicyId":"policy-1","PolicyName":"Daily","ResourceName":"SERVER-01"}""")]
+    [InlineData("""{"DataCenterUrl":"https://eu2.acronis.cloud","ClientId":"id","ClientSecret":"secret","PolicyId":"policy-1","PolicyName":"Daily","ResourceId":"resource-1"}""")]
+    public void Load_returns_null_target_when_any_legacy_field_is_missing_or_empty(string legacy)
+    {
+        var store = new ConfigurationStore(directory, new ReversingProtector());
+        Directory.CreateDirectory(directory);
+        File.WriteAllBytes(Path.Combine(directory, "configuration.dat"),
+            System.Text.Encoding.UTF8.GetBytes(legacy).Reverse().ToArray());
+
+        Assert.Null(store.Load()!.Target);
+    }
     [Fact]
     public void Save_writes_target_without_legacy_policy_resource_fields()
     {

@@ -73,7 +73,7 @@ public sealed class Diagnostics(IAcronisTransport transport)
 
         // Authentication alone is not a complete diagnostic: verify the selected
         // policy/resource is still valid and readable through the status path.
-        if (configuration.Target is not { } target)
+        if (configuration.Target is not { } target || !target.HasExecutionIds)
         {
             return new DiagnosticResult(DiagnosticOutcome.Authenticated);
         }

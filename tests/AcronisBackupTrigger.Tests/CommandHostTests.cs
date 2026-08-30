@@ -339,6 +339,30 @@ public sealed class CommandHostTests : IDisposable
         Assert.Contains("TargetIdle", output.ToString());
     }
 
+    [Theory]
+    [InlineData("", "resource-1")]
+    [InlineData("policy-1", "")]
+    public async Task Diagnose_does_not_read_target_state_when_an_execution_id_is_empty(string policyId, string resourceId)
+    {
+        var store = Store();
+        store.Save(new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "secret",
+            new ConfiguredTarget(policyId, "Daily", resourceId, "SERVER-01")));
+        var transport = new FakeAcronisTransport { State = ExecutionState.AcronisRejected };
+
+        var host = new CommandHost(
+            store,
+            () => transport,
+            new StringReader(""),
+            output,
+            error,
+            () => "typed-secret");
+
+        var exit = await host.RunAsync(["diagnose"]);
+
+        Assert.Equal(ExitCodes.Success, exit);
+        Assert.Equal(0, transport.StateReadCount);
+    }
+
     [Fact]
     public async Task Setup_requires_REPLACE_before_overwriting_unreadable_configuration()
     {

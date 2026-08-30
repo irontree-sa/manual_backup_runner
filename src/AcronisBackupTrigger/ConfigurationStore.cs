@@ -7,7 +7,15 @@ using System.Text.Json.Serialization;
 
 namespace AcronisBackupTrigger;
 
-public sealed record ConfiguredTarget(string PolicyId, string PolicyName, string ResourceId, string ResourceName);
+public sealed record ConfiguredTarget(string PolicyId, string PolicyName, string ResourceId, string ResourceName)
+{
+    /// <summary>
+    /// True when both execution identifiers are present. A target with an empty
+    /// policy or resource ID cannot be sent to the transport and is treated as
+    /// not configured.
+    /// </summary>
+    public bool HasExecutionIds => PolicyId is { Length: > 0 } && ResourceId is { Length: > 0 };
+}
 
 public sealed record TriggerConfiguration(
     string DataCenterUrl,
@@ -137,16 +145,14 @@ public sealed class ConfigurationStore(string directory, ISecretProtector protec
     private static ConfiguredTarget? MigrateLegacyTarget(StoredConfiguration stored)
     {
         if (stored.PolicyId is not { Length: > 0 } policyId
-            || stored.ResourceId is not { Length: > 0 } resourceId)
+            || stored.PolicyName is not { Length: > 0 } policyName
+            || stored.ResourceId is not { Length: > 0 } resourceId
+            || stored.ResourceName is not { Length: > 0 } resourceName)
         {
             return null;
         }
 
-        return new ConfiguredTarget(
-            policyId,
-            stored.PolicyName ?? policyId,
-            resourceId,
-            stored.ResourceName ?? resourceId);
+        return new ConfiguredTarget(policyId, policyName, resourceId, resourceName);
     }
 
     /// <summary>

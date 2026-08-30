@@ -89,7 +89,7 @@ public sealed class BackupTrigger(
 
     public async Task<TriggerResult> RunAsync(TriggerConfiguration configuration, CancellationToken cancellationToken)
     {
-        if (configuration.Target is not { } target)
+        if (configuration.Target is not { } target || !target.HasExecutionIds)
         {
             return new TriggerResult(
                 TriggerOutcome.TargetNotConfigured,
