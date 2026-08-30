@@ -271,14 +271,14 @@ public sealed class HttpAcronisTransportTests
         Assert.Equal(StartOutcome.Rejected, await Transport(client).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None));
     }
     [Fact]
-    public async Task StartPolicy_maps_an_undocumented_2xx_to_unexpected_response()
+    public async Task StartPolicy_maps_an_undocumented_2xx_to_unexpected_response_after_send()
     {
         var handler = new StubHandler(attempt => attempt == 1
             ? TokenResponse()
             : new HttpResponseMessage(HttpStatusCode.OK));
         using var client = new HttpClient(handler);
 
-        Assert.Equal(StartOutcome.UnexpectedResponse, await Transport(client).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None));
+        Assert.Equal(StartOutcome.UnexpectedResponseAfterSend, await Transport(client).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None));
     }
 
     [Fact]

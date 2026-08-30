@@ -251,6 +251,18 @@ public sealed class BackupTriggerTests
         Assert.Null(pending.Marked);
     }
 
+    [Fact]
+    public async Task An_unexpected_start_response_after_send_retains_the_pending_marker()
+    {
+        var pending = new RecordingPendingStore();
+        var transport = new ScriptedTransport { States = [ExecutionState.Idle], Start = StartOutcome.UnexpectedResponseAfterSend };
+
+        var result = await Trigger(transport, pending: pending).RunAsync(Configured, CancellationToken.None);
+
+        Assert.Equal(TriggerOutcome.UnexpectedResponse, result.Outcome);
+        Assert.NotNull(pending.Marked);
+    }
+
     private sealed class PreSendCancellingTransport : IAcronisTransport
     {
         public Task<TokenResult> RequestTokenAsync(TriggerConfiguration configuration, CancellationToken cancellationToken) =>

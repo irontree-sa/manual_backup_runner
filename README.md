@@ -112,7 +112,7 @@ without elevation.
 | 17 | Unknown command. |
 | 18 | The invocation exceeded its 90 second budget. Applies to unattended runs; `setup` and `select-target` are not time limited. |
 | 19 | A previous start request is still outstanding. Run `clear-pending`. |
-| 20 | Acronis returned an unrecognised response. |
+| 20 | Acronis returned an unrecognised response. If it came after the start request was sent, a backup may be running: check the Acronis console before running `clear-pending`. |
 | 21 | The command requires an elevated Administrator session. |
 
 Codes 12, 14, 18, and 19 mean a backup may already be running: check the Acronis
@@ -122,6 +122,12 @@ Exit 14 latches: the trigger records the ambiguous request and every later run r
 19 without starting anything until an administrator confirms the console state and runs
 `clear-pending`. That is deliberate — it prevents a duplicate backup — but an unattended
 post-backup hook stays blocked until someone intervenes, so alert on 14 and 19.
+
+Exit 20 behaves the same way when the unrecognised response arrived after the start
+request was sent: the trigger retains the pending marker, so later runs return 19 until
+an administrator checks the Acronis console and runs `clear-pending`. When the
+unrecognised response arrived before the request was sent (for example a malformed
+token response), no request left the machine and no marker is retained.
 
 ## Logs
 

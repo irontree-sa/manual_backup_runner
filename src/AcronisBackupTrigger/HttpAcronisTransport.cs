@@ -145,7 +145,7 @@ public sealed class HttpAcronisTransport(
                     HttpStatusCode.Forbidden => StartOutcome.Rejected,
                     HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests => StartOutcome.OutcomeUnknown,
                     var status when (int)status >= 500 => StartOutcome.OutcomeUnknown,
-                    _ => StartOutcome.UnexpectedResponse,
+                    _ => StartOutcome.UnexpectedResponseAfterSend,
                 };
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

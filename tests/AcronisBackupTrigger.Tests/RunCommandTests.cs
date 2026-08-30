@@ -21,7 +21,8 @@ public sealed class RunCommandTests : IDisposable
     [InlineData(ExecutionState.Idle, StartOutcome.Rejected, ExitCodes.AcronisRejected)]
     [InlineData(ExecutionState.Idle, StartOutcome.AuthenticationFailed, ExitCodes.RunAuthenticationFailed)]
     [InlineData(ExecutionState.Idle, StartOutcome.NotSent, ExitCodes.RunConnectivityFailed)]
-    [InlineData(ExecutionState.Idle, StartOutcome.OutcomeUnknown, ExitCodes.StartOutcomeUnknown)]
+    [InlineData(ExecutionState.Idle, StartOutcome.UnexpectedResponse, ExitCodes.UnexpectedResponse)]
+    [InlineData(ExecutionState.Idle, StartOutcome.UnexpectedResponseAfterSend, ExitCodes.UnexpectedResponse)]
     public async Task Run_reports_a_distinct_exit_code_per_outcome(ExecutionState state, StartOutcome start, int expected)
     {
         var store = Store();
