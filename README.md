@@ -131,9 +131,11 @@ token response), no request left the machine and no marker is retained.
 
 ## Logs
 
-`C:\ProgramData\AcronisBackupTrigger\trigger.log` records one line per invocation.
-It rotates at 256 KiB keeping one previous file, and never contains secrets, access
-tokens, authorization headers, or raw command arguments.
+`C:\ProgramData\AcronisBackupTrigger\trigger.log` records one best-effort outcome
+record per configured run that reaches the Trigger module. It rotates at 256 KiB
+keeping one previous file, and never contains secrets, access tokens, authorization
+headers, or raw command arguments. Early failures before protected configuration
+exists are console-only.
 
 ## Build
 

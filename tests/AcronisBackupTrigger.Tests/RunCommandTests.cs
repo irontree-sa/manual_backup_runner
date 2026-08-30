@@ -130,17 +130,19 @@ public sealed class RunCommandTests : IDisposable
             output,
             error,
             () => "typed-secret",
-            t => new BackupTrigger(
-                t,
+            new Trigger(
+                () => transport,
                 new NullPendingStartStore(),
+                logged.Add,
+                output,
+                error,
                 (duration, _) =>
                 {
                     elapsed += duration;
                     return Task.CompletedTask;
                 },
                 TimeSpan.FromSeconds(9),
-                () => elapsed),
-            logged.Add);
+                () => elapsed));
     }
 
     public void Dispose()

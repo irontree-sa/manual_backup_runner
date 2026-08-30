@@ -29,7 +29,12 @@ public sealed class HelpCommandTests
             new StringReader(""),
             output,
             error,
-            () => throw new InvalidOperationException("help must not read secret"));
+            () => throw new InvalidOperationException("help must not read secret"),
+            new Trigger(
+                () => throw new InvalidOperationException("help must not construct trigger"),
+                new NullPendingStartStore(),
+                output: TextWriter.Null,
+                error: TextWriter.Null));
 
         var exit = await host.RunAsync(["help"]);
 
@@ -95,6 +100,11 @@ public sealed class HelpCommandTests
             output,
             error,
             () => throw new InvalidOperationException("help must not read secret"),
+            new Trigger(
+                () => throw new InvalidOperationException("help must not construct trigger"),
+                new NullPendingStartStore(),
+                output: TextWriter.Null,
+                error: TextWriter.Null),
             administratorGate: new ThrowingAdministratorGate());
 
         var exit = await host.RunAsync(["help"]);

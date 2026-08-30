@@ -123,41 +123,6 @@ public sealed class RotatingLogTests : IDisposable
             "a named semaphore that cannot be opened must skip the write, not throw");
     }
 
-    [Fact]
-    public void Write_swallows_semaphore_full_exception_when_release_fails()
-    {
-        var semaphore = new Semaphore(1, 1);
-        var log = new RotatingLog(directory, lockFactory: () => semaphore, postAcquire: s => s.Release());
-
-        // The post-acquire hook runs after Write acquires the lock (count drops to
-        // 0) and before WriteCore/finally Release. Releasing here restores the count
-        // to its maximum, so Write's own Release() deterministically throws
-        // SemaphoreFullException.
-        log.Write("run: exit=0 outcome=ObservedRunning");
-
-        Assert.True(File.Exists(Path.Combine(directory, "trigger.log")),
-            "a release failure must not prevent the audit line from being written");
-    }
-
-    [Fact]
-    public void Write_swallows_a_throwing_hook_without_stranding_the_lock()
-    {
-        var semaphore = new Semaphore(1, 1);
-        var log = new RotatingLog(directory, lockFactory: () => semaphore, postAcquire: _ => throw new InvalidOperationException("boom"));
-
-        // A throwing hook must not propagate, and the lock must still be released
-        // so a later Write on the same semaphore acquires it instead of timing out.
-        log.Write("run: exit=0 outcome=ObservedRunning");
-
-        Assert.True(File.Exists(Path.Combine(directory, "trigger.log")),
-            "a throwing hook must not prevent the audit line from being written");
-
-        // The lock must have been released despite the throwing hook: acquire it
-        // immediately (zero timeout) and release it in finally.
-        Assert.True(semaphore.WaitOne(0),
-            "a stranded lock prevented immediate reacquisition after a throwing hook");
-        semaphore.Release();
-    }
 
     public void Dispose()
     {

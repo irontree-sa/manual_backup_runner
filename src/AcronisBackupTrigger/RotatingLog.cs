@@ -10,8 +10,7 @@ namespace AcronisBackupTrigger;
 public sealed class RotatingLog(
     string directory,
     long maxBytes = 256 * 1024,
-    Func<Semaphore>? lockFactory = null,
-    Action<Semaphore>? postAcquire = null)
+    Func<Semaphore>? lockFactory = null)
 {
     private readonly string path = Path.Combine(directory, "trigger.log");
     private readonly string previous = Path.Combine(directory, "trigger.log.1");
@@ -28,7 +27,6 @@ public sealed class RotatingLog(
     // best-effort boundary. The factory is injectable so tests can simulate a
     // failing or held lock deterministically.
     private readonly Func<Semaphore> _lockFactory = lockFactory ?? CreateDefaultLock;
-    private readonly Action<Semaphore>? _postAcquire = postAcquire;
     private Semaphore? _logLock;
 
     // A process killed while holding the named semaphore leaves its count at zero
@@ -79,15 +77,6 @@ public sealed class RotatingLog(
         }
         try
         {
-            try
-            {
-                _postAcquire?.Invoke(logLock);
-            }
-            catch (Exception)
-            {
-                // Best-effort: a throwing hook must never strand the lock or change
-                // the command result.
-            }
             WriteCore(message);
         }
         catch (IOException)
@@ -115,8 +104,6 @@ public sealed class RotatingLog(
 
     private void WriteCore(string message)
     {
-        Directory.CreateDirectory(directory);
-
         var line = $"{DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm:ssZ} {Sanitize(message)}{Environment.NewLine}";
         var bytes = Encoding.UTF8.GetByteCount(line);
 

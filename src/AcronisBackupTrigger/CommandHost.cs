@@ -32,8 +32,7 @@ public sealed class CommandHost(
     TextWriter output,
     TextWriter error,
     Func<string> secretReader,
-    Func<IAcronisTransport, BackupTrigger>? triggerFactory = null,
-    Action<string>? log = null,
+    ITrigger trigger,
     IPendingStartStore? pendingStarts = null,
     IAdministratorGate? administratorGate = null)
 {
@@ -44,23 +43,8 @@ public sealed class CommandHost(
     {
         var requested = args.FirstOrDefault()?.ToLowerInvariant() ?? "run";
         var command = Known.Contains(requested) ? requested : "unknown";
-        var exit = await DispatchAsync(requested, command, cancellationToken);
-
-        // Log the recognised command name only: an unknown argument may contain secrets.
-        // Logging is best-effort and must never replace the already-determined exit code.
-        try
-        {
-            log?.Invoke($"{command}: exit={exit}");
-        }
-        catch (IOException)
-        {
-        }
-        catch (UnauthorizedAccessException)
-        {
-        }
-        return exit;
+        return await DispatchAsync(requested, command, cancellationToken);
     }
-
     private static readonly HashSet<string> Known =
         ["setup", "reset", "select-target", "diagnose", "list-policies", "list-resources", "run", "clear-pending", "help"];
 
@@ -307,52 +291,8 @@ public sealed class CommandHost(
     {
         if (Required() is not { } configuration) return ExitCodes.ConfigurationMissing;
 
-        var transport = transportFactory();
-        var trigger = triggerFactory?.Invoke(transport) ?? new BackupTrigger(transport, pending);
-
-        TriggerResult result;
-        try
-        {
-            result = await trigger.RunAsync(configuration, cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            error.WriteLine("The run exceeded its time budget. Check the Acronis console before running again.");
-            return ExitCodes.TotalTimeout;
-        }
-
-        var exit = result.Outcome switch
-        {
-            TriggerOutcome.ObservedRunning or TriggerOutcome.CompletedSynchronously => ExitCodes.Success,
-            TriggerOutcome.AlreadyRunning => ExitCodes.AlreadyRunning,
-            TriggerOutcome.AcceptedNotObserved => ExitCodes.AcceptedNotObserved,
-            TriggerOutcome.TargetNotConfigured => ExitCodes.RunUnavailable,
-            TriggerOutcome.AuthenticationFailed => ExitCodes.RunAuthenticationFailed,
-            TriggerOutcome.ConnectivityFailed => ExitCodes.RunConnectivityFailed,
-            TriggerOutcome.AcronisRejected => ExitCodes.AcronisRejected,
-            TriggerOutcome.StartOutstanding => ExitCodes.StartOutstanding,
-            TriggerOutcome.UnexpectedResponse => ExitCodes.UnexpectedResponse,
-            TriggerOutcome.TotalTimeout => ExitCodes.TotalTimeout,
-            _ => ExitCodes.StartOutcomeUnknown,
-        };
-
-        // Result emission is best-effort: a failing stdout/stderr must never replace the
-        // already-determined exit code, or a post-backup caller could retry a completed
-        // trigger after the no-resend marker has been cleared.
-        var line = $"{result.Outcome}: {result.Detail}";
-        try
-        {
-            if (exit == ExitCodes.Success) output.WriteLine(line);
-            else error.WriteLine(line);
-        }
-        catch (IOException)
-        {
-        }
-        catch (UnauthorizedAccessException)
-        {
-        }
-
-        return exit;
+        var result = await trigger.RunAsync(configuration, cancellationToken);
+        return result.ExitCode;
     }
     private bool RequireAdministrator()
     {

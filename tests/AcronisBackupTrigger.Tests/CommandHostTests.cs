@@ -141,6 +141,7 @@ public sealed class CommandHostTests : IDisposable
             output,
             error,
             () => throw new InvalidOperationException("secret must not be read"),
+            UnusedTrigger(),
             administratorGate: new DeniedAdministratorGate());
 
         var exit = await host.RunAsync([command]);
@@ -150,7 +151,7 @@ public sealed class CommandHostTests : IDisposable
     }
 
     [Fact]
-    public async Task A_throwing_logger_never_replaces_the_command_exit_code()
+    public async Task A_throwing_audit_never_replaces_the_trigger_exit_code()
     {
         var store = Store();
         store.Save(new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "secret",
@@ -168,7 +169,12 @@ public sealed class CommandHostTests : IDisposable
             output,
             error,
             () => "typed-secret",
-            log: _ => throw new IOException("disk full"));
+            new Trigger(
+                () => transport,
+                new NullPendingStartStore(),
+                audit: _ => throw new IOException("disk full"),
+                output: output,
+                error: error));
 
         var exit = await host.RunAsync([]);
 
@@ -176,7 +182,7 @@ public sealed class CommandHostTests : IDisposable
     }
 
     [Fact]
-    public async Task A_throwing_logger_never_replaces_a_denied_administrator_gate()
+    public async Task A_throwing_audit_never_replaces_a_denied_administrator_gate()
     {
         var store = new ConfigurationStore(directory, new DeniedProtector());
         Directory.CreateDirectory(directory);
@@ -189,7 +195,12 @@ public sealed class CommandHostTests : IDisposable
             output,
             error,
             () => throw new InvalidOperationException("secret must not be read"),
-            log: _ => throw new UnauthorizedAccessException("log denied"),
+            new Trigger(
+                () => throw new InvalidOperationException("transport must not be constructed"),
+                new NullPendingStartStore(),
+                audit: _ => throw new UnauthorizedAccessException("log denied"),
+                output: output,
+                error: error),
             administratorGate: new DeniedAdministratorGate());
 
         var exit = await host.RunAsync(["setup"]);
@@ -218,7 +229,14 @@ public sealed class CommandHostTests : IDisposable
             new ThrowingWriter(),
             error,
             () => "typed-secret",
-            t => new BackupTrigger(t, new NullPendingStartStore(), (d, _) => { clock.Advance(d); return Task.CompletedTask; }, TimeSpan.FromSeconds(1), () => clock.Elapsed));
+            new Trigger(
+                () => transport,
+                new NullPendingStartStore(),
+                output: new ThrowingWriter(),
+                error: error,
+                delayOverride: (d, _) => { clock.Advance(d); return Task.CompletedTask; },
+                observationWindow: TimeSpan.FromSeconds(1),
+                elapsedOverride: () => clock.Elapsed));
 
         var exit = await host.RunAsync([]);
 
@@ -245,7 +263,14 @@ public sealed class CommandHostTests : IDisposable
             output,
             new ThrowingWriter(),
             () => "typed-secret",
-            t => new BackupTrigger(t, new NullPendingStartStore(), (d, _) => { clock.Advance(d); return Task.CompletedTask; }, TimeSpan.FromSeconds(1), () => clock.Elapsed));
+            new Trigger(
+                () => transport,
+                new NullPendingStartStore(),
+                output: output,
+                error: new ThrowingWriter(),
+                delayOverride: (d, _) => { clock.Advance(d); return Task.CompletedTask; },
+                observationWindow: TimeSpan.FromSeconds(1),
+                elapsedOverride: () => clock.Elapsed));
 
         var exit = await host.RunAsync([]);
 
@@ -272,7 +297,14 @@ public sealed class CommandHostTests : IDisposable
             output,
             error,
             () => "typed-secret",
-            t => new BackupTrigger(t, new NullPendingStartStore(), (d, _) => { clock.Advance(d); return Task.CompletedTask; }, TimeSpan.FromSeconds(1), () => clock.Elapsed));
+            new Trigger(
+                () => transport,
+                new NullPendingStartStore(),
+                output: output,
+                error: error,
+                delayOverride: (d, _) => { clock.Advance(d); return Task.CompletedTask; },
+                observationWindow: TimeSpan.FromSeconds(1),
+                elapsedOverride: () => clock.Elapsed));
 
         var exit = await host.RunAsync([]);
 
@@ -293,7 +325,7 @@ public sealed class CommandHostTests : IDisposable
             output,
             error,
             () => "typed-secret",
-            trigger: new StubTrigger(new TriggerExecutionResult(TriggerOutcome.AcronisRejected, ExitCodes.AcronisRejected, "rejected")));
+            new StubTrigger(new TriggerExecutionResult(TriggerOutcome.AcronisRejected, ExitCodes.AcronisRejected, "rejected")));
 
         Assert.Equal(ExitCodes.AcronisRejected, await host.RunAsync([]));
     }
@@ -334,7 +366,8 @@ public sealed class CommandHostTests : IDisposable
             new StringReader(""),
             output,
             error,
-            () => "typed-secret");
+            () => "typed-secret",
+            UnusedTrigger());
 
         var exit = await host.RunAsync(["diagnose"]);
 
@@ -356,7 +389,8 @@ public sealed class CommandHostTests : IDisposable
             new StringReader(""),
             output,
             error,
-            () => "typed-secret");
+            () => "typed-secret",
+            UnusedTrigger());
 
         var exit = await host.RunAsync(["diagnose"]);
 
@@ -380,7 +414,8 @@ public sealed class CommandHostTests : IDisposable
             new StringReader(""),
             output,
             error,
-            () => "typed-secret");
+            () => "typed-secret",
+            UnusedTrigger());
 
         var exit = await host.RunAsync(["diagnose"]);
 
@@ -402,7 +437,8 @@ public sealed class CommandHostTests : IDisposable
             new StringReader("no"),
             output,
             error,
-            () => throw new InvalidOperationException("secret must not be read"));
+            () => throw new InvalidOperationException("secret must not be read"),
+            UnusedTrigger());
 
         var exit = await host.RunAsync(["setup"]);
 
@@ -428,7 +464,8 @@ public sealed class CommandHostTests : IDisposable
             new StringReader(""),
             output,
             error,
-            () => "typed-secret");
+            () => "typed-secret",
+            UnusedTrigger());
 
         using var budget = new CancellationTokenSource();
         budget.Cancel();
@@ -474,7 +511,15 @@ public sealed class CommandHostTests : IDisposable
             new StringReader(string.Join(Environment.NewLine, lines)),
             output,
             error,
-            () => "typed-secret");
+            () => "typed-secret",
+            UnusedTrigger());
+
+    private static ITrigger UnusedTrigger() =>
+        new Trigger(
+            () => throw new InvalidOperationException("trigger must not be constructed"),
+            new NullPendingStartStore(),
+            output: TextWriter.Null,
+            error: TextWriter.Null);
 
     public void Dispose()
     {

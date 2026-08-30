@@ -38,7 +38,6 @@ using var machineLock = new Semaphore(1, 1, "Global\\AcronisBackupTrigger");
 if (!machineLock.WaitOne(TimeSpan.FromSeconds(20)))
 {
     Console.Error.WriteLine("Another Acronis Backup Trigger run is in progress on this machine.");
-    log.Write("run: refused, another instance holds the machine lock");
     return ExitCodes.AlreadyRunning;
 }
 
@@ -55,7 +54,6 @@ try
         if (remaining <= TimeSpan.Zero)
         {
             Console.Error.WriteLine("The run exceeded its time budget before starting. Nothing was requested.");
-            log.Write("run: budget exhausted before dispatch");
             return ExitCodes.TotalTimeout;
         }
 
@@ -73,10 +71,14 @@ try
             Console.Out,
             Console.Error,
             ReadSecret,
-            log: log.Write,
+            new Trigger(
+                () => new HttpAcronisTransport(client),
+                pendingStarts,
+                log.Write,
+                Console.Out,
+                Console.Error),
             pendingStarts: pendingStarts,
             administratorGate: new WindowsAdministratorGate());
-
         return await host.RunAsync(args, budget?.Token ?? CancellationToken.None);
     }
 }

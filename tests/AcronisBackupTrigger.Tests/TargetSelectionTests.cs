@@ -205,7 +205,12 @@ public sealed class TargetSelectionTests : IDisposable
             new StringReader(string.Join(Environment.NewLine, lines)),
             output,
             error,
-            () => "typed-secret");
+            () => "typed-secret",
+            new Trigger(
+                () => transport,
+                new NullPendingStartStore(),
+                output: TextWriter.Null,
+                error: TextWriter.Null));
 
     public void Dispose()
     {
