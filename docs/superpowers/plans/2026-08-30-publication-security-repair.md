@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `subagent-driven-development` only if the approved work can be split without shared-file overlap; otherwise implement the ordered tasks in this plan directly.
 
+**Status:** superseded — fixed-name ACL validation cannot prevent same-DACL object squatting; do not execute.
+
 **Goal:** Eliminate untrusted Windows named-semaphore use, remove the destructive ACL lab workflow, and align publication policy/review evidence without issuing an Acronis request or disturbing the user-owned `BackupPolicyTrigger` rename.
 
 **Architecture:** A small `NamedSemaphoreFactory` owns Windows ACL creation and validation. It returns a semaphore only when its protected DACL exactly grants `SYSTEM` and the configured Configuration administrator full control. `Program.cs` treats a factory failure as a fail-closed machine-run error before transport/configuration work. `RotatingLog` treats the same failure as a best-effort skipped audit. The source-review record is corrected by an addendum, rather than overwriting historical findings.
