@@ -31,9 +31,14 @@ Get-FileHash .\AcronisBackupTrigger.exe -Algorithm SHA256
 Unblock-File .\AcronisBackupTrigger.exe
 ```
 
-The hash must match exactly. If endpoint security blocks or quarantines the file,
-ask client IT for an allow-list exception for this hash and path; do not instruct
-users to click through security warnings.
+The hash must match exactly. The same directory also carries `PROVENANCE.txt`,
+which records the `source_commit` the executable was built from and the
+`sha256` of the delivered `AcronisBackupTrigger.exe`. Both the source commit
+and the SHA must match the delivered directory: the commit proves which source
+produced the binary, and the SHA proves the binary is the one that commit
+built. If endpoint security blocks or quarantines the file, ask client IT for
+an allow-list exception for this hash and path; do not instruct users to click
+through security warnings.
 
 ## Configure
 
@@ -144,4 +149,9 @@ exists are console-only.
 ```
 
 Requires the .NET 8 SDK. The build is a cross-compile: it produces the `win-x64`
-executable from any host, including macOS.
+executable from any host, including macOS. It refuses to run from a dirty
+worktree and instead builds from a clean `git archive HEAD` tree, so the
+published artifact always corresponds to a committed revision. The output
+directory carries `SHA256SUMS.txt` and `PROVENANCE.txt`; the latter records the
+`source_commit` and `sha256` of the delivered executable, and both must match
+the delivered directory before the binary is allowed to run.
