@@ -196,6 +196,104 @@ public sealed class CommandHostTests : IDisposable
 
         Assert.Equal(ExitCodes.AdministratorRequired, exit);
     }
+    [Theory]
+    [InlineData(StartOutcome.CompletedSynchronously, ExitCodes.Success)]
+    [InlineData(StartOutcome.Accepted, ExitCodes.AcceptedNotObserved)]
+    public async Task A_throwing_output_writer_never_replaces_the_trigger_exit_code(StartOutcome start, int expectedExit)
+    {
+        var store = Store();
+        store.Save(new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "secret",
+            "policy-1", "Daily", "resource-1", "SERVER-01"));
+        var transport = new FakeAcronisTransport
+        {
+            State = ExecutionState.Idle,
+            Start = start,
+        };
+        var clock = new MutableClock();
+
+        var host = new CommandHost(
+            store,
+            () => transport,
+            new StringReader(""),
+            new ThrowingWriter(),
+            error,
+            () => "typed-secret",
+            t => new BackupTrigger(t, new NullPendingStartStore(), (d, _) => { clock.Advance(d); return Task.CompletedTask; }, TimeSpan.FromSeconds(1), () => clock.Elapsed));
+
+        var exit = await host.RunAsync([]);
+
+        Assert.Equal(expectedExit, exit);
+    }
+
+    [Fact]
+    public async Task A_throwing_error_writer_never_replaces_a_successful_trigger_exit_code()
+    {
+        var store = Store();
+        store.Save(new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "secret",
+            "policy-1", "Daily", "resource-1", "SERVER-01"));
+        var transport = new FakeAcronisTransport
+        {
+            State = ExecutionState.Idle,
+            Start = StartOutcome.CompletedSynchronously,
+        };
+        var clock = new MutableClock();
+
+        var host = new CommandHost(
+            store,
+            () => transport,
+            new StringReader(""),
+            output,
+            new ThrowingWriter(),
+            () => "typed-secret",
+            t => new BackupTrigger(t, new NullPendingStartStore(), (d, _) => { clock.Advance(d); return Task.CompletedTask; }, TimeSpan.FromSeconds(1), () => clock.Elapsed));
+
+        var exit = await host.RunAsync([]);
+
+        Assert.Equal(ExitCodes.Success, exit);
+    }
+
+    [Fact]
+    public async Task An_unexpected_start_response_maps_to_exit_20()
+    {
+        var store = Store();
+        store.Save(new TriggerConfiguration("https://eu2.acronis.cloud", "client-id", "secret",
+            "policy-1", "Daily", "resource-1", "SERVER-01"));
+        var transport = new FakeAcronisTransport
+        {
+            State = ExecutionState.Idle,
+            Start = StartOutcome.UnexpectedResponse,
+        };
+        var clock = new MutableClock();
+
+        var host = new CommandHost(
+            store,
+            () => transport,
+            new StringReader(""),
+            output,
+            error,
+            () => "typed-secret",
+            t => new BackupTrigger(t, new NullPendingStartStore(), (d, _) => { clock.Advance(d); return Task.CompletedTask; }, TimeSpan.FromSeconds(1), () => clock.Elapsed));
+
+        var exit = await host.RunAsync([]);
+
+        Assert.Equal(ExitCodes.UnexpectedResponse, exit);
+        Assert.Contains("UnexpectedResponse", error.ToString());
+    }
+
+    private sealed class MutableClock
+    {
+        public TimeSpan Elapsed { get; private set; }
+        public void Advance(TimeSpan duration) => Elapsed += duration;
+    }
+
+    private sealed class ThrowingWriter : TextWriter
+    {
+        public override System.Text.Encoding Encoding => System.Text.Encoding.UTF8;
+        public override void Write(char value) => throw new IOException("broken pipe");
+        public override void Write(string? value) => throw new IOException("broken pipe");
+        public override void WriteLine(string? value) => throw new IOException("broken pipe");
+    }
+
 
     [Fact]
     public async Task Diagnose_reports_a_non_zero_exit_when_the_saved_target_is_unreadable()
@@ -306,7 +404,7 @@ public sealed class CommandHostTests : IDisposable
         public Task<ExecutionState> GetExecutionStateAsync(TriggerConfiguration configuration, string policyId, string resourceId, CancellationToken cancellationToken) =>
             throw new OperationCanceledException(cancellationToken);
 
-        public Task<StartOutcome> StartPolicyAsync(TriggerConfiguration configuration, string policyId, string resourceId, CancellationToken cancellationToken) =>
+        public Task<StartOutcome> StartPolicyAsync(TriggerConfiguration configuration, string policyId, string resourceId, CancellationToken cancellationToken, Action? onSend = null, Action? onPreSendFailure = null) =>
             throw new OperationCanceledException(cancellationToken);
     }
 

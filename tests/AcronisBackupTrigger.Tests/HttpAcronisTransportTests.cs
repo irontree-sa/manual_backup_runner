@@ -270,6 +270,49 @@ public sealed class HttpAcronisTransportTests
 
         Assert.Equal(StartOutcome.Rejected, await Transport(client).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None));
     }
+    [Fact]
+    public async Task StartPolicy_maps_an_undocumented_2xx_to_unexpected_response()
+    {
+        var handler = new StubHandler(attempt => attempt == 1
+            ? TokenResponse()
+            : new HttpResponseMessage(HttpStatusCode.OK));
+        using var client = new HttpClient(handler);
+
+        Assert.Equal(StartOutcome.UnexpectedResponse, await Transport(client).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task StartPolicy_maps_a_malformed_second_token_response_to_unexpected_response()
+    {
+        var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("not-json"),
+        });
+        using var client = new HttpClient(handler);
+
+        Assert.Equal(StartOutcome.UnexpectedResponse, await Transport(client).StartPolicyAsync(Config, "policy-1", "resource-1", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task StartPolicy_raises_onSend_only_at_the_put_boundary_and_clears_on_pre_send_failure()
+    {
+        var handler = new StubHandler(attempt => attempt == 1
+            ? TokenResponse()
+            : throw new HttpRequestException(HttpRequestError.NameResolutionError));
+        using var client = new HttpClient(handler);
+        var sends = 0;
+        var preSendFailures = 0;
+
+        var result = await Transport(client).StartPolicyAsync(
+            Config, "policy-1", "resource-1", CancellationToken.None,
+            onSend: () => sends++,
+            onPreSendFailure: () => preSendFailures++);
+
+        Assert.Equal(StartOutcome.NotSent, result);
+        Assert.Equal(5, sends);
+        Assert.Equal(5, preSendFailures);
+    }
+
 
     [Theory]
     [InlineData(HttpStatusCode.RequestTimeout)]

@@ -339,9 +339,21 @@ public sealed class CommandHost(
             _ => ExitCodes.StartOutcomeUnknown,
         };
 
+        // Result emission is best-effort: a failing stdout/stderr must never replace the
+        // already-determined exit code, or a post-backup caller could retry a completed
+        // trigger after the no-resend marker has been cleared.
         var line = $"{result.Outcome}: {result.Detail}";
-        if (exit == ExitCodes.Success) output.WriteLine(line);
-        else error.WriteLine(line);
+        try
+        {
+            if (exit == ExitCodes.Success) output.WriteLine(line);
+            else error.WriteLine(line);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
 
         return exit;
     }

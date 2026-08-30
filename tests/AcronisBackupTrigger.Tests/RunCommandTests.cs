@@ -168,7 +168,7 @@ public sealed class RunCommandTests : IDisposable
             return Task.FromResult(state);
         }
 
-        public Task<StartOutcome> StartPolicyAsync(TriggerConfiguration configuration, string policyId, string resourceId, CancellationToken cancellationToken) =>
+        public Task<StartOutcome> StartPolicyAsync(TriggerConfiguration configuration, string policyId, string resourceId, CancellationToken cancellationToken, Action? onSend = null, Action? onPreSendFailure = null) =>
             Task.FromResult(StartOutcome.Accepted);
     }
 

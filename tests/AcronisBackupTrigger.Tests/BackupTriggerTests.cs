@@ -211,6 +211,78 @@ public sealed class BackupTriggerTests
         Assert.Equal(1, transport.StartCount);
         Assert.Null(pending.Marked);
     }
+    [Fact]
+    public async Task Cancellation_before_the_put_boundary_leaves_no_pending_marker()
+    {
+        // A transport that cancels during pre-send work (e.g. second token acquisition)
+        // never invokes onSend, so no durable marker may be raised.
+        var pending = new RecordingPendingStore();
+        var transport = new PreSendCancellingTransport();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => Trigger(transport, pending: pending).RunAsync(Configured, new CancellationToken(true)));
+
+        Assert.Null(pending.Marked);
+    }
+
+    [Fact]
+    public async Task Cancellation_after_the_put_boundary_retains_the_pending_marker()
+    {
+        // A transport that raises onSend then cancels (the PUT may have reached Acronis)
+        // must leave the durable marker in place so a later run cannot resend.
+        var pending = new RecordingPendingStore();
+        var transport = new PostSendCancellingTransport();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => Trigger(transport, pending: pending).RunAsync(Configured, new CancellationToken(true)));
+
+        Assert.NotNull(pending.Marked);
+    }
+
+    [Fact]
+    public async Task An_unexpected_start_response_maps_to_unexpected_response_and_clears_the_marker()
+    {
+        var pending = new RecordingPendingStore();
+        var transport = new ScriptedTransport { States = [ExecutionState.Idle], Start = StartOutcome.UnexpectedResponse };
+
+        var result = await Trigger(transport, pending: pending).RunAsync(Configured, CancellationToken.None);
+
+        Assert.Equal(TriggerOutcome.UnexpectedResponse, result.Outcome);
+        Assert.Null(pending.Marked);
+    }
+
+    private sealed class PreSendCancellingTransport : IAcronisTransport
+    {
+        public Task<TokenResult> RequestTokenAsync(TriggerConfiguration configuration, CancellationToken cancellationToken) =>
+            Task.FromResult(TokenResult.Authenticated);
+        public Task<DiscoveryResult<AcronisPolicy>> ListProtectionPoliciesAsync(TriggerConfiguration configuration, CancellationToken cancellationToken) =>
+            Task.FromResult(new DiscoveryResult<AcronisPolicy>(DiscoveryStatus.Succeeded, []));
+        public Task<DiscoveryResult<AcronisResource>> ListResourcesAsync(TriggerConfiguration configuration, string policyId, CancellationToken cancellationToken) =>
+            Task.FromResult(new DiscoveryResult<AcronisResource>(DiscoveryStatus.Succeeded, []));
+        public Task<ExecutionState> GetExecutionStateAsync(TriggerConfiguration configuration, string policyId, string resourceId, CancellationToken cancellationToken) =>
+            Task.FromResult(ExecutionState.Idle);
+        public Task<StartOutcome> StartPolicyAsync(TriggerConfiguration configuration, string policyId, string resourceId, CancellationToken cancellationToken, Action? onSend = null, Action? onPreSendFailure = null) =>
+            throw new OperationCanceledException(cancellationToken);
+    }
+
+    private sealed class PostSendCancellingTransport : IAcronisTransport
+    {
+        public Task<TokenResult> RequestTokenAsync(TriggerConfiguration configuration, CancellationToken cancellationToken) =>
+            Task.FromResult(TokenResult.Authenticated);
+        public Task<DiscoveryResult<AcronisPolicy>> ListProtectionPoliciesAsync(TriggerConfiguration configuration, CancellationToken cancellationToken) =>
+            Task.FromResult(new DiscoveryResult<AcronisPolicy>(DiscoveryStatus.Succeeded, []));
+        public Task<DiscoveryResult<AcronisResource>> ListResourcesAsync(TriggerConfiguration configuration, string policyId, CancellationToken cancellationToken) =>
+            Task.FromResult(new DiscoveryResult<AcronisResource>(DiscoveryStatus.Succeeded, []));
+        public Task<ExecutionState> GetExecutionStateAsync(TriggerConfiguration configuration, string policyId, string resourceId, CancellationToken cancellationToken) =>
+            Task.FromResult(ExecutionState.Idle);
+        public Task<StartOutcome> StartPolicyAsync(TriggerConfiguration configuration, string policyId, string resourceId, CancellationToken cancellationToken, Action? onSend = null, Action? onPreSendFailure = null)
+        {
+            onSend?.Invoke();
+            throw new OperationCanceledException(cancellationToken);
+        }
+    }
+
+
 
     private sealed class MutableClock
     {
@@ -250,7 +322,9 @@ public sealed class BackupTriggerTests
             TriggerConfiguration configuration,
             string policyId,
             string resourceId,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            Action? onSend = null,
+            Action? onPreSendFailure = null)
         {
             StartCount++;
             return Task.FromResult(StartOutcome.Accepted);
@@ -267,7 +341,7 @@ public sealed class BackupTriggerTests
     }
 
     private static BackupTrigger Trigger(
-        ScriptedTransport transport,
+        IAcronisTransport transport,
         List<TimeSpan>? delays = null,
         TimeSpan? observationWindow = null,
         IPendingStartStore? pending = null)
@@ -318,10 +392,13 @@ public sealed class BackupTriggerTests
             TriggerConfiguration configuration,
             string policyId,
             string resourceId,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            Action? onSend = null,
+            Action? onPreSendFailure = null)
         {
             StartCount++;
             StartedTargets.Add((policyId, resourceId));
+            onSend?.Invoke();
             return Task.FromResult(Start);
         }
     }

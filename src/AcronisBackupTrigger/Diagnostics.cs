@@ -33,7 +33,9 @@ public interface IAcronisTransport
         TriggerConfiguration configuration,
         string policyId,
         string resourceId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        Action? onSend = null,
+        Action? onPreSendFailure = null);
 }
 
 public enum DiagnosticOutcome

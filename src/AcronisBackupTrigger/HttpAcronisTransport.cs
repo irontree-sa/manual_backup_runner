@@ -94,16 +94,21 @@ public sealed class HttpAcronisTransport(
         TriggerConfiguration configuration,
         string policyId,
         string resourceId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action? onSend = null,
+        Action? onPreSendFailure = null)
     {
         if (!TryResolveDataCenter(configuration, out var dataCenter)) return StartOutcome.NotSent;
 
         var (tokenResult, token) = await AcquireTokenAsync(configuration, cancellationToken);
         if (tokenResult != TokenResult.Authenticated || token is null)
         {
-            return tokenResult == TokenResult.AuthenticationFailed
-                ? StartOutcome.AuthenticationFailed
-                : StartOutcome.NotSent;
+            return tokenResult switch
+            {
+                TokenResult.AuthenticationFailed => StartOutcome.AuthenticationFailed,
+                TokenResult.UnexpectedResponse => StartOutcome.UnexpectedResponse,
+                _ => StartOutcome.NotSent,
+            };
         }
 
         var payload = JsonSerializer.Serialize(new
@@ -124,6 +129,11 @@ public sealed class HttpAcronisTransport(
             };
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
+            // The durable pending marker is tied to the actual PUT-send boundary: it is
+            // raised only once a request is about to leave this machine, and cleared on
+            // every provably pre-send failure so a later unattended run is not blocked.
+            onSend?.Invoke();
+
             try
             {
                 using var response = await client.SendAsync(request, cancellationToken);
@@ -135,7 +145,7 @@ public sealed class HttpAcronisTransport(
                     HttpStatusCode.Forbidden => StartOutcome.Rejected,
                     HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests => StartOutcome.OutcomeUnknown,
                     var status when (int)status >= 500 => StartOutcome.OutcomeUnknown,
-                    _ => StartOutcome.Rejected,
+                    _ => StartOutcome.UnexpectedResponse,
                 };
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -149,6 +159,7 @@ public sealed class HttpAcronisTransport(
             }
             catch (HttpRequestException exception) when (IsProvablyPreSend(exception))
             {
+                onPreSendFailure?.Invoke();
                 if (attempt >= Backoff.Length) return StartOutcome.NotSent;
                 await delay(Backoff[attempt], cancellationToken);
             }

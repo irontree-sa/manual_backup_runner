@@ -43,7 +43,9 @@ public sealed class FakeAcronisTransport(TokenResult tokenResult = TokenResult.A
         TriggerConfiguration configuration,
         string policyId,
         string resourceId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action? onSend = null,
+        Action? onPreSendFailure = null)
     {
         StartCount++;
         return Task.FromResult(Start);

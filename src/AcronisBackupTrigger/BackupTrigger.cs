@@ -30,6 +30,9 @@ public enum StartOutcome
     /// <summary>The request provably never reached Acronis.</summary>
     NotSent,
 
+    /// <summary>Acronis returned a response this trigger does not recognise.</summary>
+    UnexpectedResponse,
+
     /// <summary>
     /// The request may or may not have been accepted. It must never be retried,
     /// because Acronis may already have started a backup.
@@ -96,8 +99,17 @@ public sealed class BackupTrigger(
         var state = await transport.GetExecutionStateAsync(configuration, policyId, resourceId, cancellationToken);
         if (Guard(configuration, state) is { } refusal) return refusal;
 
-        pendingStarts.Mark(DateTimeOffset.UtcNow);
-        var start = await transport.StartPolicyAsync(configuration, policyId, resourceId, cancellationToken);
+        // The durable pending marker is raised only at the actual PUT-send boundary, so
+        // pre-send work (token acquisition, retry backoff) can never leave a false marker
+        // that blocks later unattended runs. The transport clears it on every provably
+        // pre-send failure and retains it once a request may have reached Acronis.
+        var start = await transport.StartPolicyAsync(
+            configuration,
+            policyId,
+            resourceId,
+            cancellationToken,
+            onSend: () => pendingStarts.Mark(DateTimeOffset.UtcNow),
+            onPreSendFailure: pendingStarts.Clear);
 
         switch (start)
         {
@@ -110,6 +122,9 @@ public sealed class BackupTrigger(
             case StartOutcome.NotSent:
                 pendingStarts.Clear();
                 return new TriggerResult(TriggerOutcome.ConnectivityFailed, "Acronis could not be reached, so no start request was sent.");
+            case StartOutcome.UnexpectedResponse:
+                pendingStarts.Clear();
+                return new TriggerResult(TriggerOutcome.UnexpectedResponse, "Acronis returned an unrecognised response to the start request.");
             case StartOutcome.CompletedSynchronously:
                 // Acronis finished the request before replying, so polling for a
                 // running state would only burn the observation window.
