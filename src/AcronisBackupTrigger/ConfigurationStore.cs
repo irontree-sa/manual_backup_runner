@@ -15,19 +15,6 @@ public sealed record TriggerConfiguration(
     string ClientSecret,
     ConfiguredTarget? Target = null);
 
-/// <summary>
-/// Persisted shape. Legacy installations stored the selected policy/resource as four
-/// positional fields; new saves store only the typed <see cref="ConfiguredTarget"/>.
-/// </summary>
-private sealed record StoredConfiguration(
-    string DataCenterUrl,
-    string ClientId,
-    string ClientSecret,
-    ConfiguredTarget? Target = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PolicyId = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PolicyName = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ResourceId = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ResourceName = null);
 public interface ISecretProtector
 {
     byte[] Protect(byte[] plaintext);
@@ -42,6 +29,19 @@ public sealed class ConfigurationUnreadableException(string message, Exception i
 
 public sealed class ConfigurationStore(string directory, ISecretProtector protector)
 {
+    /// <summary>
+    /// Persisted shape. Legacy installations stored the selected policy/resource as four
+    /// positional fields; new saves store only the typed <see cref="ConfiguredTarget"/>.
+    /// </summary>
+    private sealed record StoredConfiguration(
+        string DataCenterUrl,
+        string ClientId,
+        string ClientSecret,
+        ConfiguredTarget? Target = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PolicyId = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PolicyName = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ResourceId = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ResourceName = null);
     private readonly string path = Path.Combine(directory, FileName);
 
     public void Save(TriggerConfiguration configuration)
