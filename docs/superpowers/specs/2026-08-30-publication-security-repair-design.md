@@ -1,6 +1,6 @@
 # Publication Security Repair Design
 
-**Status:** draft — revised after concurrency and domain review
+**Status:** approved — private deployment identity architecture
 
 ## Goal
 
@@ -17,11 +17,11 @@ Remove the remaining publication-readiness risks in the renamed `BackupPolicyTri
 
 Fixed global names cannot establish their creator: a low-privilege process can precreate an object with the expected DACL and retain its creator handle. The application instead uses a cryptographically random **deployment identity** that only authorized accounts can read.
 
-`SynchronizationMetadataStore` stores a version, Configuration administrator SID, and a `SynchronizationIdentifier`: an immutable value object containing at least 128 random bits from `RandomNumberGenerator`. It creates a protected, randomized temporary file inside validated protected storage; writes complete UTF-8 metadata; durable-flushes it; then atomically publishes it with no replacement. A losing concurrent creator validates only the completed destination. Incomplete temporary files are never trusted as metadata.
+`SynchronizationMetadataStore` stores a version, Configuration administrator SID, and a `DeploymentIdentity`: an immutable value object containing at least 128 random bits from `RandomNumberGenerator`. It creates a protected, randomized temporary file inside validated protected storage; writes complete UTF-8 metadata; durable-flushes it; then atomically publishes it with no replacement. A losing concurrent creator validates only the completed destination. Incomplete temporary files are never trusted as metadata.
 
 Before metadata is trusted, the store rejects directory or metadata reparse points, validates the protected owner/DACL, validates the serialized version/SID/identifier format, and requires the stored SID to match the validated Configuration administrator. Existing deployments derive that administrator from validated pre-existing protected storage; they must not bind it to whichever account first invokes the upgraded executable. `ConfigurationStore.EnsureProtectedStorage` preserves an existing valid owner/DACL or fails: it must not rebind storage to a second Configuration administrator. Setup and reset retain a valid deployment identity rather than rotating it casually.
 
-`NamedSemaphoreFactory` derives distinct machine and log names exactly as `Global\` plus Base64Url of `HMACSHA256(key: SynchronizationIdentifier, data: UTF8(domainLabel))`, where the labels are `BackupPolicyTrigger/machine/v1` and `BackupPolicyTrigger/audit/v1`. It uses `System.Threading.AccessControl` to create each Windows semaphore with a protected DACL granting full control only to `SYSTEM` and the stored Configuration administrator SID. For an existing derived object, it requires an exact protected-DACL match; a mismatched, inaccessible, malformed, or wrong-type object is untrusted. Random names prevent a low-privilege account from guessing the object before creation; DACL validation limits use if a name is later disclosed.
+`NamedSemaphoreFactory` derives distinct machine and log names exactly as `Global\` plus Base64Url of `HMACSHA256(key: DeploymentIdentity, data: UTF8(domainLabel))`, where the labels are `BackupPolicyTrigger/machine/v1` and `BackupPolicyTrigger/audit/v1`. It uses `System.Threading.AccessControl` to create each Windows semaphore with a protected DACL granting full control only to `SYSTEM` and the stored Configuration administrator SID. For an existing derived object, it requires an exact protected-DACL match; a mismatched, inaccessible, malformed, or wrong-type object is untrusted. Random names prevent a low-privilege account from guessing the object before creation; DACL validation limits use if a name is later disclosed.
 
 The machine-run lock fails closed: print a synchronization-security error, return existing `ExitCodes.InternalError` (8), and do not perform configuration loading, transport construction, pending-marker changes, or a backup start. A valid, held machine semaphore keeps current behavior and returns `AlreadyRunning` (11) after the bounded wait.
 
@@ -39,7 +39,7 @@ The security review gains an addendum rather than rewriting its historical scan:
 
 ## Tests and verification
 
-- Add deterministic tests for the immutable 128-bit `SynchronizationIdentifier`, atomic concurrent first use, stable restart identity, reparse/ACL/SID/format rejection, and distinct names for machine/log labels and distinct deployment identities.
+- Add deterministic tests for the immutable 128-bit `DeploymentIdentity`, atomic concurrent first use, stable restart identity, reparse/ACL/SID/format rejection, and distinct names for machine/log labels and distinct deployment identities.
 - Add factory tests for the exact HMAC/Base64Url construction, expected named-semaphore DACL construction, and rejection of invalid existing-object descriptors through an injectable security-reader seam.
 - Add ConfigurationStore regression tests proving a second Configuration administrator cannot alter an established protected-storage owner/DACL.
 - Add machine-lock tests proving invalid metadata or an untrusted object returns 8 without constructing transport or touching the pending marker; valid held locks still return 11.

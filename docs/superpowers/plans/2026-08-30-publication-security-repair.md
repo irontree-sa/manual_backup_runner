@@ -2,11 +2,11 @@
 
 > **For agentic workers:** Implement the ordered tasks directly. The metadata, lock factory, and callers share one security contract and must not be split across independently editing agents.
 
-**Status:** draft — revised after concurrency and standards review.
+**Status:** approved — private deployment identity architecture.
 
 **Goal:** Replace predictable global semaphore names with a validated private deployment identity; remove destructive ACL inspection; and reconcile public publication-security evidence without invoking Acronis or changing the user-owned rename.
 
-**Architecture:** `SynchronizationMetadataStore` owns a `SynchronizationIdentifier`: an immutable 128-bit deployment identity and Configuration administrator identity. The store validates protected configuration storage before using or creating metadata, publishes complete metadata atomically without replacement, and validates matching owner/DACL and reparse-point safety. `NamedSemaphoreFactory` derives distinct machine and log names with exact domain-separated HMAC construction, creates them with exact protected DACLs, and rejects a pre-existing descriptor mismatch. `Program` fails closed before transport construction; `RotatingLog` remains best effort.
+**Architecture:** `SynchronizationMetadataStore` owns a `DeploymentIdentity`: an immutable 128-bit deployment identity and Configuration administrator identity. The store validates protected configuration storage before using or creating metadata, publishes complete metadata atomically without replacement, and validates matching owner/DACL and reparse-point safety. `NamedSemaphoreFactory` derives distinct machine and log names with exact domain-separated HMAC construction, creates them with exact protected DACLs, and rejects a pre-existing descriptor mismatch. `Program` fails closed before transport construction; `RotatingLog` remains best effort.
 
 **Tech Stack:** C# 12/.NET 8, `System.Threading.AccessControl` 8.0.0, `System.Security.Cryptography.RandomNumberGenerator`, xUnit, Windows Server PowerShell.
 
@@ -38,18 +38,18 @@
 ```csharp
 internal sealed record ProtectedStorageIdentity(SecurityIdentifier AdministratorSid);
 
-internal sealed class SynchronizationIdentifier
+internal sealed class DeploymentIdentity
 {
     public const int ByteLength = 16;
-    public static SynchronizationIdentifier CreateRandom();
-    public static SynchronizationIdentifier FromBytes(ReadOnlySpan<byte> bytes);
+    public static DeploymentIdentity CreateRandom();
+    public static DeploymentIdentity FromBytes(ReadOnlySpan<byte> bytes);
     internal ReadOnlySpan<byte> Bytes { get; }
 }
 
 internal sealed record SynchronizationMetadata(
     int Version,
     SecurityIdentifier AdministratorSid,
-    SynchronizationIdentifier Identifier);
+    DeploymentIdentity Identifier);
 
 internal sealed class SynchronizationMetadataStore(string directory)
 {
@@ -86,7 +86,7 @@ public void ResolveExisting_rejects_a_metadata_or_storage_reparse_point();
 public void EnsureProtectedStorage_rejects_a_second_configuration_administrator_without_changing_existing_acls();
 ```
 
-Do not depend on a Windows kernel object in macOS tests. Use injected filesystem/ACL inspection primitives that report a canonical protected-storage identity, a reparse point, and durable no-overwrite publication outcomes. The concurrency test uses a single fake backing store and two callers: each writes a complete protected temporary record, exactly one atomically publishes it, and both validate the identical completed destination. Verify `SynchronizationIdentifier.FromBytes` copies input bytes and exposes no mutable array.
+Do not depend on a Windows kernel object in macOS tests. Use injected filesystem/ACL inspection primitives that report a canonical protected-storage identity, a reparse point, and durable no-overwrite publication outcomes. The concurrency test uses a single fake backing store and two callers: each writes a complete protected temporary record, exactly one atomically publishes it, and both validate the identical completed destination. Verify `DeploymentIdentity.FromBytes` copies input bytes and exposes no mutable array.
 
 - [ ] **Step 2: Run focused tests and observe failure**
 
@@ -107,7 +107,7 @@ Implement a small internal filesystem/ACL seam, scoped only to metadata tests. T
 3. For existing deployments, return the validated directory owner as `ProtectedStorageIdentity.AdministratorSid`. Do not call `WindowsIdentity.GetCurrent()` on this migration path. `EnsureProtectedStorage` must preserve a valid existing owner/DACL; a different Configuration administrator attempting setup/save fails before changing either one.
 4. For first-time elevated setup only, create the configuration directory using protected ACLs, then validate it before metadata creation. If the location pre-exists but does not validate, fail rather than repairing or following it.
 
-Store UTF-8 metadata with a version, canonical SID value, and Base64Url encoding of a `SynchronizationIdentifier`. `CreateRandom` uses `RandomNumberGenerator.GetBytes(SynchronizationIdentifier.ByteLength)` and `FromBytes` requires exactly 16 bytes while copying them into private immutable storage. Validate exact field presence, version, SID parsing, encoding, and identifier length.
+Store UTF-8 metadata with a version, canonical SID value, and Base64Url encoding of a `DeploymentIdentity`. `CreateRandom` uses `RandomNumberGenerator.GetBytes(DeploymentIdentity.ByteLength)` and `FromBytes` requires exactly 16 bytes while copying them into private immutable storage. Validate exact field presence, version, SID parsing, encoding, and identifier length.
 
 Publish metadata only as follows: create a randomized protected temporary file in the validated directory; write the complete serialized record; call durable `Flush(flushToDisk: true)`; close and validate the temporary handle/ACL; atomically move it within that directory to the fixed metadata destination with no replacement. If the destination exists, discard only the validated temporary file and validate the complete destination; never parse a just-created destination until publication succeeds. Crash-left temporary files are not metadata and may only be removed after their path, reparse state, owner, and DACL are validated. Map malformed, inaccessible, collision, reparse, or ACL failures to one secret-free `SynchronizationMetadataException`.
 
@@ -259,11 +259,11 @@ Expected: all caller/log tests pass; a valid held machine lock still reports 11,
 - Modify: `docs/adr/0002-verified-unsigned-executable.md`
 - Modify: `docs/security/2026-08-30-publication-readiness-review.md`
 - Create: `docs/security/2026-08-30-publication-readiness-review-addendum.md`
-- Create: `.scratch/backup-policy-trigger/issues/06-private-synchronization-identity.md`
+- Modify: `.scratch/backup-policy-trigger/issues/06-private-deployment-identity.md`
 
 - [ ] **Step 1: Maintain the canonical tracker record**
 
-Create the `.scratch` issue with `Status: needs-triage`, the defined `Deployment identity` term, acceptance criteria for private random names, atomic metadata publication, protected-storage identity preservation, no-request failure, and the ADR/review/script work. Link the design and plan. Keep the tracker status pending until source and Windows-lab evidence are complete.
+Keep the `.scratch` issue `Status: ready-for-agent` while the approved source work is unclaimed. Use the defined `Deployment identity` term, acceptance criteria for private random names, atomic metadata publication, protected-storage identity preservation, no-request failure, and the ADR/review/script work. Link the design and plan. Change its status to `done` only after source and Windows-lab evidence are complete.
 
 
 - [ ] **Step 2: Replace the lab script with read-only inspection**
