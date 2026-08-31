@@ -1,8 +1,12 @@
-# Acronis Backup Trigger
+# Backup Policy Trigger for Acronis Cyber Protect Cloud
 
 A single Windows executable that asks Acronis Cyber Protect Cloud to run an already
 configured protection policy. Another application calls it as a post-backup command
 once its own backup finishes.
+
+This is an independent open-source project from IronTree. It is not affiliated with,
+endorsed by, or sponsored by Acronis. Acronis and related marks belong to their
+respective owner.
 
 It does **not** create or change protection policies, and it never claims a backup
 finished — the Acronis console remains the authority for completion.
@@ -23,29 +27,43 @@ No .NET runtime, Python, or virtual environment is installed on the server.
 
 ## Verify the download before running it
 
-The executable is **not code signed**. Verify it against the published hash in
-`SHA256SUMS.txt`, in an elevated PowerShell window:
+The executable is **not code signed**. Download releases only through the
+authenticated project release page and verify the release attestation before relying
+on its checksum. Then verify the executable against `SHA256SUMS.txt` in an elevated
+PowerShell window:
 
 ```powershell
-Get-FileHash .\AcronisBackupTrigger.exe -Algorithm SHA256
-Unblock-File .\AcronisBackupTrigger.exe
+Get-FileHash .\BackupPolicyTrigger.exe -Algorithm SHA256
+Unblock-File .\BackupPolicyTrigger.exe
 ```
 
-The hash must match exactly. The same directory also carries `PROVENANCE.txt`,
+The hash must match exactly. `SHA256SUMS.txt` also covers the project license,
+IronTree notice, Microsoft .NET Library License, and version-matched .NET runtime and
+ProtectedData notices shipped beside the executable. This detects corruption only after the release channel
+and its attestation have been authenticated: an adjacent checksum cannot by itself
+prove who published the executable. The same directory also carries `PROVENANCE.txt`,
 which records the `source_commit` the executable was built from and the
-`sha256` of the delivered `AcronisBackupTrigger.exe`. Both the source commit
-and the SHA must match the delivered directory: the commit proves which source
-produced the binary, and the SHA proves the binary is the one that commit
-built. If endpoint security blocks or quarantines the file, ask client IT for
+`sha256` of the delivered `BackupPolicyTrigger.exe`. Both the source commit
+and the SHA must match the attested release. If endpoint security blocks or
+quarantines the file, ask client IT for
 an allow-list exception for this hash and path; do not instruct users to click
 through security warnings.
+
+GitHub-hosted release bundles are built by the manual **Build attested release
+artifact** workflow. Verify each downloaded file with GitHub CLI before use:
+
+```powershell
+gh attestation verify .\BackupPolicyTrigger.exe --repo OWNER/REPOSITORY
+```
+
+Replace `OWNER/REPOSITORY` with the repository shown on the release page.
 
 ## Configure
 
 Run once, elevated:
 
 ```powershell
-.\AcronisBackupTrigger.exe setup
+.\BackupPolicyTrigger.exe setup
 ```
 
 It prompts for the data-centre URL, API client ID, and client secret (masked, never
@@ -53,7 +71,7 @@ echoed), then lists the tenant's root protection policies and the protected reso
 attached to the one you pick. Groups such as "All machines" are never offered: they
 would fan the backup across every member.
 
-Configuration is stored under `C:\ProgramData\AcronisBackupTrigger\`, encrypted with
+Configuration is stored under `C:\ProgramData\BackupPolicyTrigger\`, encrypted with
 DPAPI LocalMachine and restricted to `SYSTEM` and the configuring Administrator. That
 ACL is the confidentiality boundary — see `docs/adr/0001-localmachine-credential-protection.md`.
 
@@ -65,7 +83,7 @@ Re-running `setup` shows the current configuration and changes nothing unless yo
 Point the calling application at the executable with no arguments:
 
 ```text
-C:\Program Files\AcronisBackupTrigger\AcronisBackupTrigger.exe
+C:\Program Files\BackupPolicyTrigger\BackupPolicyTrigger.exe
 ```
 
 It refuses to start a second backup while the configured policy is already running on
@@ -136,7 +154,7 @@ token response), no request left the machine and no marker is retained.
 
 ## Logs
 
-`C:\ProgramData\AcronisBackupTrigger\trigger.log` records one best-effort outcome
+`C:\ProgramData\BackupPolicyTrigger\trigger.log` records one best-effort outcome
 record per configured run that reaches the Trigger module. It rotates at 256 KiB
 keeping one previous file, and never contains secrets, access tokens, authorization
 headers, or raw command arguments. Early failures before protected configuration
@@ -152,6 +170,62 @@ Requires the .NET 8 SDK. The build is a cross-compile: it produces the `win-x64`
 executable from any host, including macOS. It refuses to run from a dirty
 worktree and instead builds from a clean `git archive HEAD` tree, so the
 published artifact always corresponds to a committed revision. The output
-directory carries `SHA256SUMS.txt` and `PROVENANCE.txt`; the latter records the
-`source_commit` and `sha256` of the delivered executable, and both must match
-the delivered directory before the binary is allowed to run.
+directory carries `SHA256SUMS.txt`, `PROVENANCE.txt`, the Apache-2.0 project
+license and notice, and the applicable Microsoft/.NET license and third-party
+notices. `PROVENANCE.txt` records the `source_commit`, executable `sha256`, and
+resolved runtime/dependency versions. The release workflow must add an independent
+attestation before publishing these files.
+
+### Windows verification harness
+
+The Windows verification harness is packaged separately and is never part of
+the production release:
+
+```bash
+./build/publish-windows-verification.sh
+```
+
+It builds the application verification binary and the self-contained
+`BackupPolicyTrigger.WindowsVerification.exe` harness from the same clean
+`git archive HEAD` tree, into `artifacts/windows-verification/`. That directory
+carries a `MANIFEST.txt` enumerating every deliverable, `SHA256SUMS.txt` covering
+every file, `PROVENANCE.txt` recording the `source_commit` and the SHA-256 of
+both executables, and the same license/notice companions as the production
+package. The production `artifacts/win-x64/` package remains harness-free;
+`build/publish.sh` refuses to publish if the harness executable is present.
+
+The harness exercises protected-storage, metadata, named-semaphore, and startup
+dispatch security against real Windows ACL and kernel-object behavior. It
+touches only a randomized fixture under `%TEMP%`; it never reads or modifies
+production storage, credentials, pending markers, or Acronis resources, and it
+never starts a backup.
+
+### Standard-user lab gate
+
+Before a release is authorized, the standard-user security gate must pass under
+an approved non-administrator account:
+
+```powershell
+.\lab-standard-user-security.ps1
+```
+
+The procedure accepts no sensitive values in arguments. It reads an ephemeral
+fixture token and an ephemerally disclosed semaphore name from standard input,
+verifies the shared fixture parent is traversable to both accounts, and records
+fixed check identifiers for protected-child directory/config/metadata read and
+write denial, undisclosed-name non-derivability, and denial of opening an
+ephemerally disclosed live semaphore. It contains no command that starts
+Acronis, changes production storage, or logs sensitive data.
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). Automated tests must never contact
+Acronis or start a backup; live verification always requires separate approval.
+
+## License
+
+Original source and documentation are licensed by IronTree under the
+[Apache License 2.0](LICENSE). Third-party components retain their own licenses.
+Public binary releases must include the accompanying Microsoft/.NET license and
+third-party-notice files; see
+[`docs/research/2026-08-30-open-source-licensing.md`](docs/research/2026-08-30-open-source-licensing.md).
