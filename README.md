@@ -188,13 +188,19 @@ the production release:
 It builds the application verification binary and the self-contained
 `BackupPolicyTrigger.WindowsVerification.exe` harness from the same clean
 `git archive HEAD` tree, into `artifacts/windows-verification/`. That directory
-carries a `MANIFEST.txt` enumerating every deliverable (including the package
-metadata files and the two lab-gate scripts), `SHA256SUMS.txt` covering every
-package member except itself, `PROVENANCE.txt` recording the `source_commit`
-and the SHA-256 of both executables, and the same license/notice companions as
-the production package. The production `artifacts/win-x64/` package remains
-harness-free; `build/publish.sh` refuses to publish if the harness executable
-is present.
+carries a `MANIFEST.txt` enumerating every packaged payload — the two
+executables (`BackupPolicyTrigger.exe` and
+`BackupPolicyTrigger.WindowsVerification.exe`), the two lab-gate scripts
+(`lab-standard-user-coordinator.ps1` and `lab-standard-user-security.ps1`),
+the project `LICENSE` and `NOTICE`, the Microsoft .NET Library License, the
+version-matched .NET runtime and ProtectedData license/notice companions, and
+the package metadata files `MANIFEST.txt`, `PROVENANCE.txt`, and
+`SHA256SUMS.txt` themselves. `SHA256SUMS.txt` covers every other package member
+but not itself — the conventional self-coverage exception, since a checksum
+file cannot contain its own hash. `PROVENANCE.txt` records the `source_commit`
+and the SHA-256 of both executables. The production `artifacts/win-x64/`
+package remains harness-free; `build/publish.sh` refuses to publish if the
+harness executable is present.
 
 The harness exercises protected-storage, metadata, named-semaphore, and startup
 dispatch security against real Windows ACL and kernel-object behavior. It
@@ -208,6 +214,11 @@ Before a release is authorized, the standard-user security gate must pass under
 an approved non-administrator account. The gate is a two-account procedure
 driven by a privileged coordinator, both delivered in the verification package
 as `lab-standard-user-coordinator.ps1` and `lab-standard-user-security.ps1`.
+The coordinator is the only end-to-end entry point: it performs the privileged
+setup, records the administrator side of traversal, and then launches the
+standard-user gate itself. The gate script is never run directly — it is
+invoked only by the coordinator, which supplies the ephemeral fixture token and
+the ephemerally disclosed semaphore name over the child's standard input.
 
 Run the coordinator once, elevated, as the Configuration administrator:
 
