@@ -203,6 +203,95 @@ public sealed class SynchronizationMetadataStoreTests : IDisposable
         Assert.DoesNotContain(api.Events, e => e.StartsWith("dispose:", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void Cleanup_skips_disposition_when_a_deny_rule_is_present()
+    {
+        Directory.CreateDirectory(directory);
+        var identity = new ProtectedStorageIdentity("S-1-5-32-544");
+        var api = new RecordingMetadataFileApi(directory)
+        {
+            CauseNoReplaceCollision = true,
+            AccessRules =
+            [
+                new("S-1-5-18", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
+                new("S-1-5-32-544", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
+                new("S-1-5-32-545", AccessControlType.Deny, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
+            ],
+        };
+        var store = new SynchronizationMetadataStore(directory, api);
+
+        Assert.Throws<SynchronizationMetadataException>(() =>
+            store.ResolveOrCreateForValidatedStorage(identity));
+        Assert.DoesNotContain(api.Events, e => e.StartsWith("dispose:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Cleanup_skips_disposition_when_rights_are_altered()
+    {
+        Directory.CreateDirectory(directory);
+        var identity = new ProtectedStorageIdentity("S-1-5-32-544");
+        var api = new RecordingMetadataFileApi(directory)
+        {
+            CauseNoReplaceCollision = true,
+            AccessRules =
+            [
+                new("S-1-5-18", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
+                new("S-1-5-32-544", AccessControlType.Allow, FileSystemRights.Read, InheritanceFlags.None, PropagationFlags.None),
+            ],
+        };
+        var store = new SynchronizationMetadataStore(directory, api);
+
+        Assert.Throws<SynchronizationMetadataException>(() =>
+            store.ResolveOrCreateForValidatedStorage(identity));
+        Assert.DoesNotContain(api.Events, e => e.StartsWith("dispose:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Cleanup_skips_disposition_when_a_rule_is_inherited()
+    {
+        Directory.CreateDirectory(directory);
+        var identity = new ProtectedStorageIdentity("S-1-5-32-544");
+        var api = new RecordingMetadataFileApi(directory)
+        {
+            CauseNoReplaceCollision = true,
+            AccessRules =
+            [
+                new("S-1-5-18", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
+                new("S-1-5-32-544", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.ContainerInherit, PropagationFlags.None),
+            ],
+        };
+        var store = new SynchronizationMetadataStore(directory, api);
+
+        Assert.Throws<SynchronizationMetadataException>(() =>
+            store.ResolveOrCreateForValidatedStorage(identity));
+        Assert.DoesNotContain(api.Events, e => e.StartsWith("dispose:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Cleanup_unlinks_reparse_point_without_traversing_external_target()
+    {
+        Directory.CreateDirectory(directory);
+        var external = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(external);
+        var sentinel = Path.Combine(external, "sentinel.txt");
+        File.WriteAllText(sentinel, "keep");
+        try
+        {
+            File.CreateSymbolicLink(Path.Combine(directory, "external-link"), external);
+
+            // Fixture teardown must unlink the reparse point, never traverse into
+            // the external directory it points at.
+            Directory.Delete(directory, recursive: true);
+
+            Assert.False(Directory.Exists(directory));
+            Assert.True(File.Exists(sentinel), "the external target must survive reparse-point unlink");
+        }
+        finally
+        {
+            if (Directory.Exists(external)) Directory.Delete(external, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("S-1-5-18", true)]
     [InlineData("S-1-5-32-544", true)]
