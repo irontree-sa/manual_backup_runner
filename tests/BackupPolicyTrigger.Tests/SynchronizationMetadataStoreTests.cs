@@ -51,12 +51,17 @@ public sealed class SynchronizationMetadataStoreTests : IDisposable
     public void Failed_publication_cleans_its_temporary_metadata()
     {
         Directory.CreateDirectory(directory);
-        File.WriteAllText(Path.Combine(directory, "synchronization.json"), "{}");
-        var store = new SynchronizationMetadataStore(directory);
+        var identity = new ProtectedStorageIdentity("S-1-5-32-544");
+        // Force a failure after the temporary has been created and written: the
+        // post-write validation rejects the temporary, so cleanup must dispose the
+        // exact generated `.tmp` file (not an obsolete `.new`).
+        var api = new RecordingMetadataFileApi(directory) { RejectPostWriteValidation = true };
+        var store = new SynchronizationMetadataStore(directory, api);
 
         Assert.Throws<SynchronizationMetadataException>(() =>
-            store.ResolveOrCreateForValidatedStorage(new ProtectedStorageIdentity("S-1-5-18")));
+            store.ResolveOrCreateForValidatedStorage(identity));
 
+        Assert.Empty(Directory.EnumerateFiles(directory, ".synchronization.*.tmp"));
         Assert.Empty(Directory.EnumerateFiles(directory, ".synchronization.*.new"));
     }
 
@@ -82,7 +87,16 @@ public sealed class SynchronizationMetadataStoreTests : IDisposable
 
         Assert.Throws<SynchronizationMetadataException>(() =>
             store.ResolveOrCreateForValidatedStorage(identity));
+
+        // The temporary was observed, and the observation saw the complete
+        // serialized metadata bytes — proving the writer flushed and closed before
+        // validation ran.
         Assert.Contains(api.Events, e => e.StartsWith("observe:", StringComparison.Ordinal));
+        Assert.NotEmpty(api.ObservedContents);
+        var bytes = api.ObservedContents[0];
+        Assert.True(bytes.Length > 0, "the temporary must contain the serialized metadata");
+        using var document = System.Text.Json.JsonDocument.Parse(bytes);
+        Assert.True(SynchronizationMetadataStore.HasExactSchema(document.RootElement));
         Assert.False(File.Exists(Path.Combine(directory, "synchronization.json")));
     }
 
@@ -96,10 +110,21 @@ public sealed class SynchronizationMetadataStoreTests : IDisposable
 
         Assert.Throws<SynchronizationMetadataException>(() =>
             store.ResolveOrCreateForValidatedStorage(identity));
+
+        // Exactly two observations: the publication validation and the cleanup. The
+        // cleanup must observe, dispose, and close the exact same generated temporary
+        // filename — never a decoy.
         var events = api.Events.ToList();
-        var observe = events.FindIndex(e => e.StartsWith("observe:", StringComparison.Ordinal));
-        var dispose = events.FindIndex(e => e.StartsWith("dispose:", StringComparison.Ordinal));
-        var close = events.FindLastIndex(e => e.StartsWith("close:", StringComparison.Ordinal));
+        var observes = events.Where(e => e.StartsWith("observe:", StringComparison.Ordinal)).ToList();
+        Assert.Equal(2, observes.Count);
+        var temporary = observes[0]["observe:".Length..];
+        Assert.Equal($"observe:{temporary}", observes[1]);
+        Assert.Contains($"dispose:{temporary}", events);
+        Assert.Contains($"close:{temporary}", events);
+
+        var observe = events.FindIndex(e => e == $"observe:{temporary}");
+        var dispose = events.FindIndex(e => e == $"dispose:{temporary}");
+        var close = events.FindLastIndex(e => e == $"close:{temporary}");
         Assert.True(observe >= 0, "cleanup must observe the temporary");
         Assert.True(dispose > observe, "disposition must follow observation");
         Assert.True(close > dispose, "the observed handle must close after disposition");
@@ -223,6 +248,7 @@ public sealed class SynchronizationMetadataStoreTests : IDisposable
     {
         private readonly string directory;
         private readonly List<string> events = new();
+        private readonly List<byte[]> observedContents = new();
 
         public RecordingMetadataFileApi(string directory) => this.directory = directory;
 
@@ -234,6 +260,7 @@ public sealed class SynchronizationMetadataStoreTests : IDisposable
         public bool DisappearBeforeCleanup { get; set; }
 
         public IReadOnlyList<string> Events => events;
+        public IReadOnlyList<byte[]> ObservedContents => observedContents;
 
         private static readonly IReadOnlyList<MetadataAccessRule> ExactRules =
         [
@@ -244,6 +271,15 @@ public sealed class SynchronizationMetadataStoreTests : IDisposable
         public IMetadataObservation Observe(string path)
         {
             events.Add($"observe:{Path.GetFileName(path)}");
+            // Prove the writer flushed and closed: reopen the temporary exclusively
+            // (FileShare.None) and capture its complete bytes. A still-open writer
+            // would fail this open, and a partial write would yield truncated bytes.
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+            using (var buffer = new MemoryStream())
+            {
+                stream.CopyTo(buffer);
+                observedContents.Add(buffer.ToArray());
+            }
             if (CauseNoReplaceCollision)
                 File.WriteAllText(Path.Combine(directory, "synchronization.json"), "{}");
             if (RejectPostWriteValidation)
@@ -262,7 +298,11 @@ public sealed class SynchronizationMetadataStoreTests : IDisposable
             public bool IsDaclProtected => owner.IsDaclProtected;
             public IReadOnlyList<MetadataAccessRule> AccessRules => owner.AccessRules;
 
-            public void RequestDisposition() => owner.events.Add($"dispose:{Path.GetFileName(path)}");
+            public void RequestDisposition()
+            {
+                owner.events.Add($"dispose:{Path.GetFileName(path)}");
+                File.Delete(path);
+            }
 
             public void Dispose() => owner.events.Add($"close:{Path.GetFileName(path)}");
         }
