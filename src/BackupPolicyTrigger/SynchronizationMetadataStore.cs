@@ -50,7 +50,8 @@ internal sealed record MetadataAccessRule(
     AccessControlType Type,
     FileSystemRights Rights,
     InheritanceFlags Inheritance,
-    PropagationFlags Propagation);
+    PropagationFlags Propagation,
+    bool IsInherited);
 
 /// <summary>
 /// Persists the private deployment identity only after protected storage has been
@@ -340,6 +341,7 @@ internal sealed class SynchronizationMetadataStore
                 && rule.Rights == FileSystemRights.FullControl
                 && rule.Propagation == PropagationFlags.None
                 && rule.Inheritance == InheritanceFlags.None
+                && !rule.IsInherited
                 && (rule.IdentitySid == systemSid || rule.IdentitySid == administratorSid))
             && rules.Select(rule => rule.IdentitySid).Distinct().Count() == 2;
     }

@@ -174,9 +174,9 @@ public sealed class SynchronizationMetadataStoreTests : IDisposable
             CauseNoReplaceCollision = true,
             AccessRules =
             [
-                new("S-1-5-18", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
-                new("S-1-5-32-544", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
-                new("S-1-5-32-545", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
+                new("S-1-5-18", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
+                new("S-1-5-32-544", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
+                new("S-1-5-32-545", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
             ],
         };
         var store = new SynchronizationMetadataStore(directory, api);
@@ -213,9 +213,9 @@ public sealed class SynchronizationMetadataStoreTests : IDisposable
             CauseNoReplaceCollision = true,
             AccessRules =
             [
-                new("S-1-5-18", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
-                new("S-1-5-32-544", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
-                new("S-1-5-32-545", AccessControlType.Deny, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
+                new("S-1-5-18", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
+                new("S-1-5-32-544", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
+                new("S-1-5-32-545", AccessControlType.Deny, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
             ],
         };
         var store = new SynchronizationMetadataStore(directory, api);
@@ -235,8 +235,8 @@ public sealed class SynchronizationMetadataStoreTests : IDisposable
             CauseNoReplaceCollision = true,
             AccessRules =
             [
-                new("S-1-5-18", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
-                new("S-1-5-32-544", AccessControlType.Allow, FileSystemRights.Read, InheritanceFlags.None, PropagationFlags.None),
+                new("S-1-5-18", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
+                new("S-1-5-32-544", AccessControlType.Allow, FileSystemRights.Read, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
             ],
         };
         var store = new SynchronizationMetadataStore(directory, api);
@@ -256,8 +256,8 @@ public sealed class SynchronizationMetadataStoreTests : IDisposable
             CauseNoReplaceCollision = true,
             AccessRules =
             [
-                new("S-1-5-18", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
-                new("S-1-5-32-544", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.ContainerInherit, PropagationFlags.None),
+                new("S-1-5-18", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
+                new("S-1-5-32-544", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: true),
             ],
         };
         var store = new SynchronizationMetadataStore(directory, api);
@@ -353,8 +353,8 @@ public sealed class SynchronizationMetadataStoreTests : IDisposable
 
         private static readonly IReadOnlyList<MetadataAccessRule> ExactRules =
         [
-            new("S-1-5-18", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
-            new("S-1-5-32-544", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
+            new("S-1-5-18", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
+            new("S-1-5-32-544", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
         ];
 
         public IMetadataObservation Observe(string path)

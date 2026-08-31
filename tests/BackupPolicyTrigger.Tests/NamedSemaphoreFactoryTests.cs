@@ -11,12 +11,11 @@ public sealed class NamedSemaphoreFactoryTests
         new(1, AdministratorSid, DeploymentIdentity.FromBytes(Enumerable.Repeat((byte)1, DeploymentIdentity.ByteLength).ToArray()));
 
     private static NamedSemaphoreDescriptor TrustedDescriptor() => new(
-        NamedObjectType.Semaphore,
         IsDaclProtected: true,
         Aces:
         [
-            new("S-1-5-18", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
-            new(AdministratorSid, AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
+            new("S-1-5-18", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
+            new(AdministratorSid, AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
         ]);
 
     [Fact]
@@ -37,19 +36,19 @@ public sealed class NamedSemaphoreFactoryTests
 
     public static IEnumerable<object[]> UntrustedDescriptors()
     {
-        yield return [ExtraAce()];
-        yield return [InheritedAce()];
-        yield return [DenyAce()];
-        yield return [WrongAdministratorSid()];
-        yield return [AlteredRights()];
-        yield return [UnprotectedDacl()];
-        yield return [ObjectTypeCollision()];
+        yield return ["extra-ace"];
+        yield return ["inherited-ace"];
+        yield return ["deny-ace"];
+        yield return ["wrong-administrator-sid"];
+        yield return ["altered-rights"];
+        yield return ["unprotected-dacl"];
     }
 
     [Theory]
     [MemberData(nameof(UntrustedDescriptors))]
-    public void OpenTrusted_rejects_untrusted_existing_descriptor(NamedSemaphoreDescriptor descriptor)
+    public void OpenTrusted_rejects_untrusted_existing_descriptor(string caseName)
     {
+        var descriptor = DescriptorFor(caseName);
         var api = new FakeNamedSemaphoreApi(createdNewFlag: false, descriptor);
 
         Assert.Throws<UntrustedNamedSemaphoreException>(() =>
@@ -63,6 +62,17 @@ public sealed class NamedSemaphoreFactoryTests
 
         Assert.Throws<UntrustedNamedSemaphoreException>(() =>
             new NamedSemaphoreFactory(api).OpenTrusted(Metadata, SynchronizationLockPurpose.MachineRun));
+    }
+
+    [Fact]
+    public void OpenTrusted_translates_object_type_collision_from_Create_failure()
+    {
+        var api = new FakeNamedSemaphoreApi(createdNewFlag: false, TrustedDescriptor()) { ThrowOnCreate = true };
+
+        var exception = Assert.Throws<UntrustedNamedSemaphoreException>(() =>
+            new NamedSemaphoreFactory(api).OpenTrusted(Metadata, SynchronizationLockPurpose.MachineRun));
+
+        Assert.IsType<WaitHandleCannotBeOpenedException>(exception.InnerException);
     }
 
     [Fact]
@@ -85,74 +95,71 @@ public sealed class NamedSemaphoreFactoryTests
         Assert.True(api.ObservedExpectedDacl);
     }
 
+    private static NamedSemaphoreDescriptor DescriptorFor(string caseName) => caseName switch
+    {
+        "extra-ace" => ExtraAce(),
+        "inherited-ace" => InheritedAce(),
+        "deny-ace" => DenyAce(),
+        "wrong-administrator-sid" => WrongAdministratorSid(),
+        "altered-rights" => AlteredRights(),
+        "unprotected-dacl" => UnprotectedDacl(),
+        _ => throw new ArgumentOutOfRangeException(nameof(caseName)),
+    };
+
     private static NamedSemaphoreDescriptor ExtraAce() => new(
-        NamedObjectType.Semaphore,
         IsDaclProtected: true,
         Aces:
         [
-            new("S-1-5-18", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
-            new(AdministratorSid, AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
-            new("S-1-5-32-545", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
+            new("S-1-5-18", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
+            new(AdministratorSid, AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
+            new("S-1-5-32-545", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
         ]);
 
     private static NamedSemaphoreDescriptor InheritedAce() => new(
-        NamedObjectType.Semaphore,
         IsDaclProtected: true,
         Aces:
         [
-            new("S-1-5-18", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
-            new(AdministratorSid, AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.ContainerInherit, PropagationFlags.None),
+            new("S-1-5-18", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
+            new(AdministratorSid, AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: true),
         ]);
 
     private static NamedSemaphoreDescriptor DenyAce() => new(
-        NamedObjectType.Semaphore,
         IsDaclProtected: true,
         Aces:
         [
-            new("S-1-5-18", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
-            new(AdministratorSid, AccessControlType.Deny, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
+            new("S-1-5-18", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
+            new(AdministratorSid, AccessControlType.Deny, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
         ]);
 
     private static NamedSemaphoreDescriptor WrongAdministratorSid() => new(
-        NamedObjectType.Semaphore,
         IsDaclProtected: true,
         Aces:
         [
-            new("S-1-5-18", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
-            new("S-1-5-32-545", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
+            new("S-1-5-18", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
+            new("S-1-5-32-545", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
         ]);
 
     private static NamedSemaphoreDescriptor AlteredRights() => new(
-        NamedObjectType.Semaphore,
         IsDaclProtected: true,
         Aces:
         [
-            new("S-1-5-18", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
-            new(AdministratorSid, AccessControlType.Allow, SemaphoreRights.Modify, InheritanceFlags.None, PropagationFlags.None),
+            new("S-1-5-18", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
+            new(AdministratorSid, AccessControlType.Allow, SemaphoreRights.Modify, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
         ]);
 
     private static NamedSemaphoreDescriptor UnprotectedDacl() => new(
-        NamedObjectType.Semaphore,
         IsDaclProtected: false,
         Aces:
         [
-            new("S-1-5-18", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
-            new(AdministratorSid, AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
-        ]);
-
-    private static NamedSemaphoreDescriptor ObjectTypeCollision() => new(
-        NamedObjectType.Mutex,
-        IsDaclProtected: true,
-        Aces:
-        [
-            new("S-1-5-18", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
-            new(AdministratorSid, AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
+            new("S-1-5-18", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
+            new(AdministratorSid, AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
         ]);
 
     private sealed class FakeNamedSemaphoreApi(bool createdNewFlag, NamedSemaphoreDescriptor descriptor) : INamedSemaphoreApi
     {
         private NamedSemaphoreDescriptor? expected;
         public bool ThrowOnGetSecurity { get; set; }
+        public bool ThrowOnCreate { get; set; }
 
         public bool ObservedExpectedDacl =>
             expected is { IsDaclProtected: true } e
@@ -163,6 +170,8 @@ public sealed class NamedSemaphoreFactoryTests
         {
             expected = security;
             createdNew = createdNewFlag;
+            if (ThrowOnCreate)
+                throw new WaitHandleCannotBeOpenedException("The named object is not a semaphore.");
             return new Semaphore(1, 1);
         }
 

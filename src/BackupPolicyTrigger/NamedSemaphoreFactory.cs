@@ -14,17 +14,15 @@ internal sealed class UntrustedNamedSemaphoreException(string message, Exception
 /// adapter converts this to and from <see cref="SemaphoreSecurity"/>; tests
 /// compare descriptors directly so rejection assertions execute on any OS
 /// without constructing Windows ACL objects.
-public enum NamedObjectType { Semaphore, Mutex, Event, WaitableTimer }
-
-public sealed record NamedSemaphoreAce(
+internal sealed record NamedSemaphoreAce(
     string IdentitySid,
     AccessControlType Type,
     SemaphoreRights Rights,
     InheritanceFlags Inheritance,
-    PropagationFlags Propagation);
+    PropagationFlags Propagation,
+    bool IsInherited);
 
-public sealed record NamedSemaphoreDescriptor(
-    NamedObjectType ObjectType,
+internal sealed record NamedSemaphoreDescriptor(
     bool IsDaclProtected,
     IReadOnlyList<NamedSemaphoreAce> Aces);
 
@@ -78,17 +76,15 @@ internal sealed class NamedSemaphoreFactory(INamedSemaphoreApi? api = null)
 
     private static NamedSemaphoreDescriptor CreateDescriptor(string administratorSid) =>
         new(
-            NamedObjectType.Semaphore,
             IsDaclProtected: true,
             Aces:
             [
-                new("S-1-5-18", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
-                new(administratorSid, AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
+                new("S-1-5-18", AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
+                new(administratorSid, AccessControlType.Allow, SemaphoreRights.FullControl, InheritanceFlags.None, PropagationFlags.None, IsInherited: false),
             ]);
 
     private static bool Equivalent(NamedSemaphoreDescriptor expected, NamedSemaphoreDescriptor actual) =>
-        expected.ObjectType == actual.ObjectType
-        && expected.IsDaclProtected == actual.IsDaclProtected
+        expected.IsDaclProtected == actual.IsDaclProtected
         && expected.Aces.Count == actual.Aces.Count
         && expected.Aces.Zip(actual.Aces).All(pair => pair.First == pair.Second);
 
@@ -112,7 +108,6 @@ internal sealed class NamedSemaphoreFactory(INamedSemaphoreApi? api = null)
                     new SecurityIdentifier(ace.IdentitySid), ace.Rights, ace.Type));
             return security;
         }
-
         private static NamedSemaphoreDescriptor FromSemaphoreSecurity(SemaphoreSecurity security)
         {
             var aces = security.GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier))
@@ -122,10 +117,10 @@ internal sealed class NamedSemaphoreFactory(INamedSemaphoreApi? api = null)
                     rule.AccessControlType,
                     rule.SemaphoreRights,
                     rule.InheritanceFlags,
-                    rule.PropagationFlags))
+                    rule.PropagationFlags,
+                    rule.IsInherited))
                 .ToList();
             return new NamedSemaphoreDescriptor(
-                NamedObjectType.Semaphore,
                 security.AreAccessRulesProtected,
                 aces);
         }
