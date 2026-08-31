@@ -1,3 +1,4 @@
+using System.Security.AccessControl;
 using BackupPolicyTrigger;
 
 namespace BackupPolicyTrigger.Tests;
@@ -75,13 +76,13 @@ public sealed class SynchronizationMetadataStoreTests : IDisposable
     public void Publication_rejects_temporary_file_when_post_write_acl_validation_fails()
     {
         Directory.CreateDirectory(directory);
-        var identity = new ProtectedStorageIdentity("S-1-5-18");
+        var identity = new ProtectedStorageIdentity("S-1-5-32-544");
         var api = new RecordingMetadataFileApi(directory) { RejectPostWriteValidation = true };
         var store = new SynchronizationMetadataStore(directory, api);
 
         Assert.Throws<SynchronizationMetadataException>(() =>
             store.ResolveOrCreateForValidatedStorage(identity));
-        Assert.True(api.ValidatedAfterFlushAndClose);
+        Assert.Contains(api.Events, e => e.StartsWith("observe:", StringComparison.Ordinal));
         Assert.False(File.Exists(Path.Combine(directory, "synchronization.json")));
     }
 
@@ -89,15 +90,92 @@ public sealed class SynchronizationMetadataStoreTests : IDisposable
     public void Current_operation_cleanup_validates_owner_and_dacl_before_disposition()
     {
         Directory.CreateDirectory(directory);
-        var identity = new ProtectedStorageIdentity("S-1-5-18");
-        var api = new RecordingMetadataFileApi(directory);
+        var identity = new ProtectedStorageIdentity("S-1-5-32-544");
+        var api = new RecordingMetadataFileApi(directory) { CauseNoReplaceCollision = true };
         var store = new SynchronizationMetadataStore(directory, api);
 
-        api.CauseNoReplaceCollision();
         Assert.Throws<SynchronizationMetadataException>(() =>
             store.ResolveOrCreateForValidatedStorage(identity));
-        Assert.True(api.ValidatedCleanupOwnerAndDacl);
-        Assert.True(api.DispositionWasRequestedOnlyForCurrentTemporary);
+        var events = api.Events.ToList();
+        var observe = events.FindIndex(e => e.StartsWith("observe:", StringComparison.Ordinal));
+        var dispose = events.FindIndex(e => e.StartsWith("dispose:", StringComparison.Ordinal));
+        var close = events.FindLastIndex(e => e.StartsWith("close:", StringComparison.Ordinal));
+        Assert.True(observe >= 0, "cleanup must observe the temporary");
+        Assert.True(dispose > observe, "disposition must follow observation");
+        Assert.True(close > dispose, "the observed handle must close after disposition");
+    }
+
+    [Fact]
+    public void Cleanup_skips_disposition_when_owner_does_not_match()
+    {
+        Directory.CreateDirectory(directory);
+        var identity = new ProtectedStorageIdentity("S-1-5-32-544");
+        var api = new RecordingMetadataFileApi(directory)
+        {
+            CauseNoReplaceCollision = true,
+            OwnerSid = "S-1-5-21-1234567890-123456789-123456789-500",
+        };
+        var store = new SynchronizationMetadataStore(directory, api);
+
+        Assert.Throws<SynchronizationMetadataException>(() =>
+            store.ResolveOrCreateForValidatedStorage(identity));
+        Assert.DoesNotContain(api.Events, e => e.StartsWith("dispose:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Cleanup_skips_disposition_when_dacl_is_not_protected()
+    {
+        Directory.CreateDirectory(directory);
+        var identity = new ProtectedStorageIdentity("S-1-5-32-544");
+        var api = new RecordingMetadataFileApi(directory)
+        {
+            CauseNoReplaceCollision = true,
+            IsDaclProtected = false,
+        };
+        var store = new SynchronizationMetadataStore(directory, api);
+
+        Assert.Throws<SynchronizationMetadataException>(() =>
+            store.ResolveOrCreateForValidatedStorage(identity));
+        Assert.DoesNotContain(api.Events, e => e.StartsWith("dispose:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Cleanup_skips_disposition_when_rules_are_not_exact()
+    {
+        Directory.CreateDirectory(directory);
+        var identity = new ProtectedStorageIdentity("S-1-5-32-544");
+        var api = new RecordingMetadataFileApi(directory)
+        {
+            CauseNoReplaceCollision = true,
+            AccessRules =
+            [
+                new("S-1-5-18", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
+                new("S-1-5-32-544", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
+                new("S-1-5-32-545", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
+            ],
+        };
+        var store = new SynchronizationMetadataStore(directory, api);
+
+        Assert.Throws<SynchronizationMetadataException>(() =>
+            store.ResolveOrCreateForValidatedStorage(identity));
+        Assert.DoesNotContain(api.Events, e => e.StartsWith("dispose:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Cleanup_tolerates_current_temporary_disappearing()
+    {
+        Directory.CreateDirectory(directory);
+        var identity = new ProtectedStorageIdentity("S-1-5-32-544");
+        var api = new RecordingMetadataFileApi(directory)
+        {
+            CauseNoReplaceCollision = true,
+            DisappearBeforeCleanup = true,
+        };
+        var store = new SynchronizationMetadataStore(directory, api);
+
+        Assert.Throws<SynchronizationMetadataException>(() =>
+            store.ResolveOrCreateForValidatedStorage(identity));
+        Assert.DoesNotContain(api.Events, e => e.StartsWith("dispose:", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -136,50 +214,57 @@ public sealed class SynchronizationMetadataStoreTests : IDisposable
     }
 
     /// <summary>
-    /// Deterministic file-operation adapter used only by these tests. It records
-    /// whether post-write validation ran after flush-and-close and whether cleanup
-    /// validated owner/DACL before requesting disposition of only the current
-    /// operation's temporary path.
+    /// Deterministic file-operation adapter used only by these tests. It records an
+    /// ordered event trace and reports configurable security facts so the store's
+    /// owner/protection/rule predicates and disposition ordering can be observed
+    /// without constructing Windows-only ACL objects.
     /// </summary>
     private sealed class RecordingMetadataFileApi : IMetadataFileApi
     {
         private readonly string directory;
-        private string? cleanupPath;
-        private string? dispositionPath;
+        private readonly List<string> events = new();
 
         public RecordingMetadataFileApi(string directory) => this.directory = directory;
 
+        public string? OwnerSid { get; set; } = "S-1-5-32-544";
+        public bool IsDaclProtected { get; set; } = true;
+        public IReadOnlyList<MetadataAccessRule> AccessRules { get; set; } = ExactRules;
         public bool RejectPostWriteValidation { get; set; }
-        public bool ValidatedAfterFlushAndClose { get; private set; }
-        public bool ValidatedCleanupOwnerAndDacl { get; private set; }
-        public bool DispositionWasRequestedOnlyForCurrentTemporary { get; private set; }
+        public bool CauseNoReplaceCollision { get; set; }
+        public bool DisappearBeforeCleanup { get; set; }
 
-        private bool createCollisionOnValidate;
+        public IReadOnlyList<string> Events => events;
 
-        public void CauseNoReplaceCollision() => createCollisionOnValidate = true;
+        private static readonly IReadOnlyList<MetadataAccessRule> ExactRules =
+        [
+            new("S-1-5-18", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
+            new("S-1-5-32-544", AccessControlType.Allow, FileSystemRights.FullControl, InheritanceFlags.None, PropagationFlags.None),
+        ];
 
-        public void ValidateForPublication(string path, string administratorSid)
+        public IMetadataObservation Observe(string path)
         {
-            ValidatedAfterFlushAndClose = true;
-            if (createCollisionOnValidate)
+            events.Add($"observe:{Path.GetFileName(path)}");
+            if (CauseNoReplaceCollision)
                 File.WriteAllText(Path.Combine(directory, "synchronization.json"), "{}");
             if (RejectPostWriteValidation)
+            {
+                RejectPostWriteValidation = false;
                 throw new SynchronizationMetadataException("Synchronization metadata could not be validated.");
+            }
+            if (DisappearBeforeCleanup && events.Count(e => e.StartsWith("observe:", StringComparison.Ordinal)) > 1)
+                throw new FileNotFoundException("Synchronization metadata does not exist.", path);
+            return new RecordingObservation(this, path);
         }
 
-        public void ValidateForCleanup(string path, string administratorSid)
+        private sealed class RecordingObservation(RecordingMetadataFileApi owner, string path) : IMetadataObservation
         {
-            ValidatedCleanupOwnerAndDacl = true;
-            cleanupPath = path;
-        }
+            public string? OwnerSid => owner.OwnerSid;
+            public bool IsDaclProtected => owner.IsDaclProtected;
+            public IReadOnlyList<MetadataAccessRule> AccessRules => owner.AccessRules;
 
-        public void RequestDisposition(string path)
-        {
-            dispositionPath = path;
-            DispositionWasRequestedOnlyForCurrentTemporary =
-                string.Equals(cleanupPath, path, StringComparison.Ordinal)
-                && Path.GetFileName(path).StartsWith(".synchronization.", StringComparison.Ordinal)
-                && path.EndsWith(".tmp", StringComparison.Ordinal);
+            public void RequestDisposition() => owner.events.Add($"dispose:{Path.GetFileName(path)}");
+
+            public void Dispose() => owner.events.Add($"close:{Path.GetFileName(path)}");
         }
     }
 }

@@ -19,20 +19,38 @@ internal sealed class SynchronizationMetadataException(string message, Exception
 /// depend on. Production uses the Windows P/Invoke implementation inside
 /// <see cref="SynchronizationMetadataStore"/>; tests inject a recording fake so
 /// validation ordering and disposition can be observed without constructing
-/// Windows-only ACL objects.
+/// Windows-only ACL objects. The seam only observes security facts and requests
+/// disposition; the store owns every security predicate.
 /// </summary>
 internal interface IMetadataFileApi
 {
     /// <summary>Reopens the known temporary path without following reparse points and
-    /// validates regular-file state, owner, protected DACL, and exact rules.</summary>
-    void ValidateForPublication(string path, string administratorSid);
-
-    /// <summary>Validates the same state/owner/DACL before the temporary is disposed.</summary>
-    void ValidateForCleanup(string path, string administratorSid);
-
-    /// <summary>Requests delete disposition for the given path only.</summary>
-    void RequestDisposition(string path);
+    /// returns its security facts. The returned observation holds the open handle and
+    /// must be disposed by the caller.</summary>
+    IMetadataObservation Observe(string path);
 }
+
+/// <summary>
+/// Security facts observed from an open temporary handle. The store decides whether
+/// the owner, protected-DACL state, and exact rules are acceptable; the observation
+/// only reports them.
+/// </summary>
+internal interface IMetadataObservation : IDisposable
+{
+    string? OwnerSid { get; }
+    bool IsDaclProtected { get; }
+    IReadOnlyList<MetadataAccessRule> AccessRules { get; }
+
+    /// <summary>Requests delete disposition on the same handle that was observed.</summary>
+    void RequestDisposition();
+}
+
+internal sealed record MetadataAccessRule(
+    string IdentitySid,
+    AccessControlType Type,
+    FileSystemRights Rights,
+    InheritanceFlags Inheritance,
+    PropagationFlags Propagation);
 
 /// <summary>
 /// Persists the private deployment identity only after protected storage has been
@@ -87,6 +105,7 @@ internal sealed class SynchronizationMetadataStore
     private SynchronizationMetadata CreateOrReadPublished(ProtectedStorageIdentity identity)
     {
         var temporary = Path.Combine(directory, $".{FileName}.{Guid.NewGuid():N}.tmp");
+        Exception? pending = null;
         try
         {
             var metadata = new SynchronizationMetadata(FormatVersion, identity.AdministratorSid, DeploymentIdentity.CreateRandom());
@@ -120,8 +139,9 @@ internal sealed class SynchronizationMetadataStore
                 return ResolveExisting(identity);
             }
         }
-        catch (SynchronizationMetadataException)
+        catch (SynchronizationMetadataException exception)
         {
+            pending = exception;
             throw;
         }
         catch (Exception exception) when (exception is IOException
@@ -129,11 +149,19 @@ internal sealed class SynchronizationMetadataStore
             or JsonException
             or ArgumentException)
         {
-            throw new SynchronizationMetadataException("Synchronization metadata could not be validated.", exception);
+            pending = new SynchronizationMetadataException("Synchronization metadata could not be validated.", exception);
+            throw pending;
         }
         finally
         {
-            DeleteTemporary(temporary, identity.AdministratorSid);
+            try
+            {
+                DeleteTemporary(temporary, identity.AdministratorSid);
+            }
+            catch (Exception cleanup) when (pending is not null)
+            {
+                throw new AggregateException(pending, cleanup);
+            }
         }
     }
 
@@ -151,13 +179,8 @@ internal sealed class SynchronizationMetadataStore
         using var handle = OpenExistingFileWithoutFollowingReparsePoint(path);
         ValidateRegularFileHandle(handle);
         var security = GetHandleSecurity(handle);
-        var owner = security.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
-        if (owner?.Value != identity.AdministratorSid
-            || !security.AreAccessRulesProtected
-            || !ConfigurationStore.HasExactRules(security, owner!, InheritanceFlags.None))
-        {
+        if (!IsValidSecurity(security, identity.AdministratorSid))
             throw new SynchronizationMetadataException("Synchronization metadata could not be validated.");
-        }
 
         using var stream = new FileStream(handle, FileAccess.Read);
         using var output = new MemoryStream();
@@ -257,16 +280,9 @@ internal sealed class SynchronizationMetadataStore
                 administrator,
                 InheritanceFlags.None);
             ApplySecurityByHandle(stream.SafeFileHandle, security);
-
             var applied = GetHandleSecurity(stream.SafeFileHandle);
-            var owner = applied.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
-            if (owner != administrator
-                || !applied.AreAccessRulesProtected
-                || !ConfigurationStore.HasExactRules(applied, administrator, InheritanceFlags.None))
-            {
+            if (!IsValidSecurity(applied, administratorSid))
                 throw new SynchronizationMetadataException("Synchronization metadata could not be validated.");
-            }
-
             ValidateRegularFileHandle(stream.SafeFileHandle);
             return stream;
         }
@@ -281,7 +297,9 @@ internal sealed class SynchronizationMetadataStore
     {
         if (api is not null)
         {
-            api.ValidateForPublication(temporary, administratorSid);
+            using var observation = api.Observe(temporary);
+            if (!IsValidSecurity(observation, administratorSid))
+                throw new SynchronizationMetadataException("Synchronization metadata could not be validated.");
             return;
         }
 
@@ -296,15 +314,35 @@ internal sealed class SynchronizationMetadataStore
         using var handle = OpenExistingFileWithoutFollowingReparsePoint(temporary, GenericRead | ReadControl);
         ValidateRegularFileHandle(handle);
         var security = GetHandleSecurity(handle);
-        var owner = security.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
-        if (owner?.Value != administratorSid
-            || !security.AreAccessRulesProtected
-            || !ConfigurationStore.HasExactRules(security, owner!, InheritanceFlags.None))
-        {
+        if (!IsValidSecurity(security, administratorSid))
             throw new SynchronizationMetadataException("Synchronization metadata could not be validated.");
-        }
+    }
+    private static bool IsValidSecurity(FileSecurity security, string administratorSid)
+    {
+        var expected = new SecurityIdentifier(administratorSid);
+        var owner = security.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
+        return owner?.Value == expected.Value
+            && security.AreAccessRulesProtected
+            && ConfigurationStore.HasExactRules(security, expected, InheritanceFlags.None);
     }
 
+    private static bool IsValidSecurity(IMetadataObservation observation, string administratorSid) =>
+        observation.OwnerSid == administratorSid
+        && observation.IsDaclProtected
+        && HasExactRules(observation.AccessRules, administratorSid);
+
+    private static bool HasExactRules(IReadOnlyList<MetadataAccessRule> rules, string administratorSid)
+    {
+        const string systemSid = "S-1-5-18";
+        return rules.Count == 2
+            && rules.All(rule =>
+                rule.Type == AccessControlType.Allow
+                && rule.Rights == FileSystemRights.FullControl
+                && rule.Propagation == PropagationFlags.None
+                && rule.Inheritance == InheritanceFlags.None
+                && (rule.IdentitySid == systemSid || rule.IdentitySid == administratorSid))
+            && rules.Select(rule => rule.IdentitySid).Distinct().Count() == 2;
+    }
     private static void ValidateRegularFileHandle(SafeFileHandle handle)
     {
         if (!GetFileInformationByHandle(handle, out var information)
@@ -313,7 +351,6 @@ internal sealed class SynchronizationMetadataStore
             throw new SynchronizationMetadataException("Synchronization metadata could not be validated.");
         }
     }
-
     private static SafeFileHandle OpenNewFileWithSecurityRights(string path)
     {
         var handle = CreateFile(
@@ -343,7 +380,7 @@ internal sealed class SynchronizationMetadataStore
             if (!GetSecurityDescriptorOwner(pointer, out var owner, out _)
                 || !GetSecurityDescriptorDacl(pointer, out var present, out var dacl, out _)
                 || !present
-                || SetSecurityInfo(handle, FileObjectSecurity, OwnerSecurityInformation | DaclSecurityInformation, owner, IntPtr.Zero, dacl, IntPtr.Zero) != 0)
+                || SetSecurityInfo(handle, FileObjectSecurity, OwnerSecurityInformation | DaclSecurityInformation | ProtectedDaclSecurityInformation, owner, IntPtr.Zero, dacl, IntPtr.Zero) != 0)
             {
                 throw new SynchronizationMetadataException("Synchronization metadata could not be validated.");
             }
@@ -356,35 +393,62 @@ internal sealed class SynchronizationMetadataStore
 
     private void DeleteTemporary(string path, string administratorSid)
     {
-        if (!File.Exists(path)) return;
-
         if (api is not null)
         {
-            api.ValidateForCleanup(path, administratorSid);
-            api.RequestDisposition(path);
+            IMetadataObservation observation;
+            try
+            {
+                observation = api.Observe(path);
+            }
+            catch (FileNotFoundException)
+            {
+                // The current temporary already disappeared; nothing to clean.
+                return;
+            }
+            using (observation)
+            {
+                if (IsValidSecurity(observation, administratorSid))
+                    observation.RequestDisposition();
+            }
             return;
         }
-
         if (!OperatingSystem.IsWindows())
         {
-            File.Delete(path);
+            try
+            {
+                File.Delete(path);
+            }
+            catch (FileNotFoundException)
+            {
+                // The current temporary already disappeared; nothing to clean.
+            }
+            catch (DirectoryNotFoundException)
+            {
+                // The current temporary already disappeared; nothing to clean.
+            }
             return;
         }
-
-        using var handle = OpenExistingFileWithoutFollowingReparsePoint(path, GenericRead | Delete);
-        ValidateRegularFileHandle(handle);
-        var security = GetHandleSecurity(handle);
-        var owner = security.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
-        if (owner is null
-            || !security.AreAccessRulesProtected
-            || !ConfigurationStore.HasExactRules(security, owner, InheritanceFlags.None))
+        SafeFileHandle handle;
+        try
         {
-            throw new SynchronizationMetadataException("Synchronization metadata could not be validated.");
+            handle = OpenExistingFileWithoutFollowingReparsePoint(path, GenericRead | Delete);
         }
+        catch (FileNotFoundException)
+        {
+            // The current temporary already disappeared; nothing to clean.
+            return;
+        }
+        using (handle)
+        {
+            ValidateRegularFileHandle(handle);
+            var security = GetHandleSecurity(handle);
+            if (!IsValidSecurity(security, administratorSid))
+                return;
 
-        var disposition = new FileDispositionInformation { DeleteFile = true };
-        if (!SetFileInformationByHandle(handle, FileDispositionInfo, ref disposition, (uint)Marshal.SizeOf<FileDispositionInformation>()))
-            throw new SynchronizationMetadataException("Synchronization metadata could not be validated.");
+            var disposition = new FileDispositionInformation { DeleteFile = true };
+            if (!SetFileInformationByHandle(handle, FileDispositionInfo, ref disposition, (uint)Marshal.SizeOf<FileDispositionInformation>()))
+                throw new SynchronizationMetadataException("Synchronization metadata could not be validated.");
+        }
     }
 
 
@@ -450,6 +514,7 @@ internal sealed class SynchronizationMetadataStore
         return Convert.FromBase64String(padded.PadRight((padded.Length + 3) / 4 * 4, '='));
     }
     private const uint OwnerSecurityInformation = 0x00000001;
+    private const uint ProtectedDaclSecurityInformation = 0x80000000;
     private const uint DaclSecurityInformation = 0x00000004;
     private const uint ReparsePointAttribute = 0x00000400;
     private const uint GenericRead = 0x80000000;
