@@ -99,13 +99,19 @@ cp "$protected_data_package/LICENSE.TXT" \
   "$output/PROTECTEDDATA-MIT-LICENSE.txt"
 cp "$protected_data_package/THIRD-PARTY-NOTICES.TXT" \
   "$output/PROTECTEDDATA-THIRD-PARTY-NOTICES.txt"
+cp "$build_root/.scratch/lab-standard-user-security.ps1" \
+  "$output/lab-standard-user-security.ps1"
+cp "$build_root/.scratch/lab-standard-user-coordinator.ps1" \
+  "$output/lab-standard-user-coordinator.ps1"
 
 printf 'source_commit=%s\nfile=BackupPolicyTrigger.exe\nsha256=%s\nfile=BackupPolicyTrigger.WindowsVerification.exe\nsha256=%s\nruntime_framework_version=%s\nprotected_data_version=%s\nthreading_accesscontrol_version=%s\n' \
   "$revision" "$app_sha" "$harness_sha" "$runtime_version" \
   "$protected_data_version" "$threading_accesscontrol_version" > "$output/PROVENANCE.txt"
 
-# The manifest enumerates every deliverable in the package; SHA256SUMS.txt
-# covers every file, including the manifest and provenance themselves.
+# The manifest enumerates every deliverable in the package, including the
+# package metadata files and the two lab-gate scripts. SHA256SUMS.txt covers
+# every package member except itself (the conventional self-coverage
+# exception): a checksum file cannot contain its own hash.
 {
   printf 'BackupPolicyTrigger.exe\n'
   printf 'BackupPolicyTrigger.WindowsVerification.exe\n'
@@ -116,6 +122,11 @@ printf 'source_commit=%s\nfile=BackupPolicyTrigger.exe\nsha256=%s\nfile=BackupPo
   printf 'DOTNET-RUNTIME-THIRD-PARTY-NOTICES.txt\n'
   printf 'PROTECTEDDATA-MIT-LICENSE.txt\n'
   printf 'PROTECTEDDATA-THIRD-PARTY-NOTICES.txt\n'
+  printf 'MANIFEST.txt\n'
+  printf 'PROVENANCE.txt\n'
+  printf 'SHA256SUMS.txt\n'
+  printf 'lab-standard-user-security.ps1\n'
+  printf 'lab-standard-user-coordinator.ps1\n'
 } > "$output/MANIFEST.txt"
 
 (
@@ -131,7 +142,9 @@ printf 'source_commit=%s\nfile=BackupPolicyTrigger.exe\nsha256=%s\nfile=BackupPo
     PROTECTEDDATA-MIT-LICENSE.txt \
     PROTECTEDDATA-THIRD-PARTY-NOTICES.txt \
     MANIFEST.txt \
-    PROVENANCE.txt
+    PROVENANCE.txt \
+    lab-standard-user-security.ps1 \
+    lab-standard-user-coordinator.ps1
 ) > "$output/SHA256SUMS.txt"
 
 chmod 0644 \
@@ -146,7 +159,9 @@ chmod 0644 \
   "$output/PROTECTEDDATA-THIRD-PARTY-NOTICES.txt" \
   "$output/MANIFEST.txt" \
   "$output/PROVENANCE.txt" \
-  "$output/SHA256SUMS.txt"
+  "$output/SHA256SUMS.txt" \
+  "$output/lab-standard-user-security.ps1" \
+  "$output/lab-standard-user-coordinator.ps1"
 
 printf '\nPublished %s\nSHA-256 %s\nPublished %s\nSHA-256 %s\n' \
   "$app_exe" "$app_sha" "$harness_exe" "$harness_sha"

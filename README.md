@@ -188,11 +188,13 @@ the production release:
 It builds the application verification binary and the self-contained
 `BackupPolicyTrigger.WindowsVerification.exe` harness from the same clean
 `git archive HEAD` tree, into `artifacts/windows-verification/`. That directory
-carries a `MANIFEST.txt` enumerating every deliverable, `SHA256SUMS.txt` covering
-every file, `PROVENANCE.txt` recording the `source_commit` and the SHA-256 of
-both executables, and the same license/notice companions as the production
-package. The production `artifacts/win-x64/` package remains harness-free;
-`build/publish.sh` refuses to publish if the harness executable is present.
+carries a `MANIFEST.txt` enumerating every deliverable (including the package
+metadata files and the two lab-gate scripts), `SHA256SUMS.txt` covering every
+package member except itself, `PROVENANCE.txt` recording the `source_commit`
+and the SHA-256 of both executables, and the same license/notice companions as
+the production package. The production `artifacts/win-x64/` package remains
+harness-free; `build/publish.sh` refuses to publish if the harness executable
+is present.
 
 The harness exercises protected-storage, metadata, named-semaphore, and startup
 dispatch security against real Windows ACL and kernel-object behavior. It
@@ -203,19 +205,42 @@ never starts a backup.
 ### Standard-user lab gate
 
 Before a release is authorized, the standard-user security gate must pass under
-an approved non-administrator account:
+an approved non-administrator account. The gate is a two-account procedure
+driven by a privileged coordinator, both delivered in the verification package
+as `lab-standard-user-coordinator.ps1` and `lab-standard-user-security.ps1`.
+
+Run the coordinator once, elevated, as the Configuration administrator:
 
 ```powershell
-.\lab-standard-user-security.ps1
+.\lab-standard-user-coordinator.ps1
 ```
 
-The procedure accepts no sensitive values in arguments. It reads an ephemeral
-fixture token and an ephemerally disclosed semaphore name from standard input,
+The coordinator prompts for the standard-user account and password (the
+password is read as a `SecureString` and never echoed or persisted), then:
+
+1. Creates the dedicated lab fixture parent
+   `%ProgramData%\BackupPolicyTrigger.WindowsVerification` and grants traverse
+   to both the Configuration administrator and the standard user.
+2. Creates a protected child restricted to `SYSTEM` and the Configuration
+   administrator, and writes placeholder configuration and synchronization
+   metadata into it.
+3. Creates and holds a live named semaphore with the production DACL.
+4. Records the administrator side of traversal, then launches the standard-user
+   gate under the non-administrator account, handing it the ephemeral fixture
+   token and the ephemerally disclosed semaphore name over the child's standard
+   input.
+5. Collects the gate's fixed check identifiers, releases the semaphore, and
+   removes the fixture.
+
+The gate accepts no sensitive values in arguments. It reads the ephemeral
+fixture token and the ephemerally disclosed semaphore name from standard input,
 verifies the shared fixture parent is traversable to both accounts, and records
 fixed check identifiers for protected-child directory/config/metadata read and
 write denial, undisclosed-name non-derivability, and denial of opening an
 ephemerally disclosed live semaphore. It contains no command that starts
-Acronis, changes production storage, or logs sensitive data.
+Acronis, changes production storage, or logs sensitive data. The token and
+semaphore name are never written to a file, placed in process arguments, or
+echoed.
 
 ## Contributing
 
