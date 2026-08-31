@@ -1,159 +1,234 @@
 # Publication Security Repair Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `subagent-driven-development` only if the approved work can be split without shared-file overlap; otherwise implement the ordered tasks in this plan directly.
+> **For agentic workers:** Implement the ordered tasks directly. The metadata, lock factory, and callers share one security contract and must not be split across independently editing agents.
 
-**Status:** superseded — fixed-name ACL validation cannot prevent same-DACL object squatting; do not execute.
+**Status:** approved replacement for the superseded fixed-name plan.
 
-**Goal:** Eliminate untrusted Windows named-semaphore use, remove the destructive ACL lab workflow, and align publication policy/review evidence without issuing an Acronis request or disturbing the user-owned `BackupPolicyTrigger` rename.
+**Goal:** Replace predictable global semaphore names with validated private per-installation names; remove destructive ACL inspection; and reconcile public publication-security evidence without invoking Acronis or changing the user-owned rename.
 
-**Architecture:** A small `NamedSemaphoreFactory` owns Windows ACL creation and validation. It returns a semaphore only when its protected DACL exactly grants `SYSTEM` and the configured Configuration administrator full control. `Program.cs` treats a factory failure as a fail-closed machine-run error before transport/configuration work. `RotatingLog` treats the same failure as a best-effort skipped audit. The source-review record is corrected by an addendum, rather than overwriting historical findings.
+**Architecture:** `SynchronizationMetadataStore` owns a random 128-bit installation identifier and the Configuration administrator identity. The store validates protected configuration storage before using or creating metadata, and metadata is atomically written beneath that storage with matching owner/DACL and reparse-point checks. `NamedSemaphoreFactory` derives distinct machine and log names from the private identifier, creates them with exact protected DACLs, and rejects a pre-existing descriptor mismatch. `Program` fails closed before transport construction; `RotatingLog` remains best effort.
 
-**Tech Stack:** C# 12/.NET 8, `System.Threading.AccessControl` 8.0.0, xUnit, Bash, Windows Server PowerShell.
+**Tech Stack:** C# 12/.NET 8, `System.Threading.AccessControl` 8.0.0, `System.Security.Cryptography.RandomNumberGenerator`, xUnit, Windows Server PowerShell.
 
 ## Global Constraints
 
-- Work on the existing `repair/release-hardening` checkout. Its 33 staged and 37 unstaged rename changes are user-owned; stage and commit only named security-repair files with `git commit --only`.
-- Do not merge, push, release, reset, or invoke a no-argument backup run.
-- `help` remains static and bypasses locking, configuration, logging, transport, and elevation.
-- Machine-run semaphore validation fails closed with the existing internal-error exit code 8; it must precede `HttpClient`, `CommandHost`, and `ITrigger` construction.
-- Audit logging remains best effort: an unavailable or untrusted log semaphore skips only that audit record.
-- Standard users must not create, read, or alter either named semaphore.
-- Follow red/green/refactor: run each new focused test before implementation and again after the change.
+- Work in the existing `repair/release-hardening` checkout. The concurrent `BackupPolicyTrigger` rename is user-owned: stage and commit only listed repair files via `git commit --only`.
+- Do not merge, push, tag, release, reset, or invoke a no-argument backup run.
+- Preserve the static `help` bypass at `src/BackupPolicyTrigger/Program.cs:4-13`; it must not resolve metadata, acquire a lock, read configuration, or construct transport/logging.
+- Use at least 128 cryptographically random bits. Never print, audit, diagnose, serialize into public artifacts, or include the identifier/derived names in exception text.
+- Do not trust a missing, malformed, unreadable, reparse-point, owner/DACL/SID-mismatched configuration directory or synchronization metadata file.
+- Legacy migration derives the Configuration administrator SID only from validated pre-existing protected storage. It must never adopt the SID of the account that happens to first run the upgraded executable.
+- Setup/reset retain valid synchronization metadata; no casual identity rotation.
+- Invalid/inaccessible metadata fails the machine path closed before configuration loading, transport construction, pending-marker work, or Acronis requests. Audit failure remains best effort.
+- Follow red/green/refactor and run each focused test before and after implementation.
 
 ---
 
-### Task 1: Add a validated named-semaphore boundary
+### Task 1: Establish a validated protected-storage identity
 
 **Files:**
-- Create: `src/BackupPolicyTrigger/NamedSemaphoreFactory.cs`
+- Modify: `src/BackupPolicyTrigger/ConfigurationStore.cs:39-76,181-225`
+- Create: `src/BackupPolicyTrigger/SynchronizationMetadataStore.cs`
+- Create: `tests/BackupPolicyTrigger.Tests/SynchronizationMetadataStoreTests.cs`
 - Modify: `src/BackupPolicyTrigger/BackupPolicyTrigger.csproj`
-- Create: `tests/BackupPolicyTrigger.Tests/NamedSemaphoreFactoryTests.cs`
 
 **Interfaces:**
 
 ```csharp
-public sealed class UntrustedNamedSemaphoreException : Exception;
+internal sealed record ProtectedStorageIdentity(SecurityIdentifier AdministratorSid);
 
-public interface INamedSemaphoreApi
-{
-    Semaphore Create(string name, SemaphoreSecurity security, out bool createdNew);
-    SemaphoreSecurity GetSecurity(Semaphore semaphore);
-}
+internal sealed record SynchronizationMetadata(
+    int Version,
+    SecurityIdentifier AdministratorSid,
+    byte[] Identifier);
 
-public sealed class NamedSemaphoreFactory(INamedSemaphoreApi api)
+internal sealed class SynchronizationMetadataStore(string directory)
 {
-    public Semaphore OpenTrusted(string name, SecurityIdentifier administratorSid);
+    public SynchronizationMetadata ResolveExisting();
+    public SynchronizationMetadata ResolveOrCreateForValidatedStorage();
 }
 ```
 
-The production `INamedSemaphoreApi` calls `SemaphoreAcl.Create(1, 1, name, out createdNew, security)` and `semaphore.GetAccessControl()`. Its use remains behind `OperatingSystem.IsWindows()`; callers supply process-local `new Semaphore(1, 1)` outside Windows.
+`ConfigurationStore` gains one narrow Windows-only helper that validates the pre-existing storage directory and returns `ProtectedStorageIdentity`. It must be used before legacy metadata creation; it is not a configuration-load API.
 
-- [ ] **Step 1: Write failing descriptor and rejection tests**
+- [ ] **Step 1: Write failing protected-storage and metadata tests**
 
-Add tests covering these observable contracts:
+Add deterministic tests for:
 
 ```csharp
 [Fact]
-public void OpenTrusted_creates_a_protected_dacl_for_system_and_configuration_administrator();
+public void ResolveOrCreate_creates_16_random_bytes_and_persists_a_stable_identity();
 
 [Fact]
-public void OpenTrusted_rejects_an_existing_semaphore_with_a_different_dacl();
+public async Task ResolveOrCreate_concurrent_first_use_publishes_one_valid_metadata_record();
+
+[Theory]
+[InlineData("corrupt metadata")]
+[InlineData("unsupported version")]
+public void ResolveExisting_rejects_invalid_metadata_format(string contents);
 
 [Fact]
-public void OpenTrusted_rejects_an_existing_semaphore_when_its_dacl_cannot_be_read();
+public void ResolveExisting_rejects_a_metadata_administrator_sid_that_differs_from_validated_storage();
+
+[Fact]
+public void ResolveExisting_rejects_a_metadata_or_storage_reparse_point();
 ```
 
-Use a fake `INamedSemaphoreApi` that records the requested `SemaphoreSecurity`, returns a controlled `createdNew` value, and supplies a synthetic `SemaphoreSecurity` for existing objects. Assert the expected access-section SDDL has a protected DACL (`P`) and exactly two allow ACEs, each with `SemaphoreRights.FullControl`: built-in `SYSTEM` (`S-1-5-18`) and the supplied Configuration administrator SID. Do not assert ACE ordering.
+Do not depend on a Windows kernel object in macOS tests. Use injected filesystem/ACL inspection primitives that can report a canonical protected-storage identity, a reparse point, an existing byte sequence, and atomic create outcomes. The concurrency test uses a single fake backing store and two callers; exactly one receives `created`, both resolve identical version/SID/16-byte identifier data.
 
-- [ ] **Step 2: Run the focused tests and observe failure**
-
-Run:
+- [ ] **Step 2: Run focused tests and observe failure**
 
 ```bash
-dotnet test tests/BackupPolicyTrigger.Tests/BackupPolicyTrigger.Tests.csproj --filter "FullyQualifiedName~NamedSemaphoreFactoryTests"
+dotnet test tests/BackupPolicyTrigger.Tests/BackupPolicyTrigger.Tests.csproj --filter "FullyQualifiedName~SynchronizationMetadataStoreTests"
 ```
 
-Expected: compilation failure because the factory/API/exception do not exist.
+Expected: compilation fails because the metadata store and protected-storage identity contract do not exist.
 
-- [ ] **Step 3: Implement atomic creation and exact existing-descriptor validation**
+- [ ] **Step 3: Implement secure storage validation**
 
-Add `System.Threading.AccessControl` version `8.0.0` to the executable project. In `NamedSemaphoreFactory`:
+Add `System.Threading.AccessControl` version `8.0.0` if not already added by the source’s Windows ACL helpers; do not add duplicate package references.
 
-1. Construct a `SemaphoreSecurity`; enable DACL protection; add only non-inherited full-control `SemaphoreAccessRule`s for `LocalSystemSid` and the configured Configuration administrator SID.
-2. Use `SemaphoreAcl.Create` so the descriptor is installed at object creation—never create then call `SetAccessControl`.
-3. If `createdNew` is false, read the existing descriptor with `ThreadingAclExtensions.GetAccessControl`; reject if its protected access-section DACL differs from the expected descriptor. Treat `UnauthorizedAccessException`, `IOException`, `WaitHandleCannotBeOpenedException`, or malformed descriptor data as `UntrustedNamedSemaphoreException`; dispose the acquired handle before throwing.
-4. Return the handle only after validation. Do not repair an existing object’s ACL: an attacker-created object is unsafe even if it could be overwritten.
+Implement a small internal filesystem/ACL seam, scoped only to metadata tests. The Windows implementation must:
 
-Keep the API seam internal to the executable and expose it to the test assembly through the project’s existing `InternalsVisibleTo` convention if one exists; otherwise add one narrow assembly attribute. Do not introduce a general-purpose security abstraction.
+1. Reject any storage directory or metadata file marked as a reparse point before opening, and recheck after obtaining the handle. Use an open mode that does not follow reparse points; do not implement this as a string-path-only check.
+2. Read owner and DACL with `AccessControlSections.Owner | Access`; require DACL protection, owner equal to the Configuration administrator SID, and exactly two non-inherited full-control allow ACEs: `LocalSystemSid` and that administrator. Reuse the existing `ConfigurationStore.Restrict` rule construction rather than creating a second ACL convention.
+3. For existing installations, return the validated directory owner as `ProtectedStorageIdentity.AdministratorSid`. Do not call `WindowsIdentity.GetCurrent()` on this migration path.
+4. For first-time elevated setup only, create the configuration directory using protected ACLs, then validate it before metadata creation. If the location pre-exists but does not validate, fail rather than repairing or following it.
+
+Store UTF-8 metadata with a version, canonical SID value, and Base64Url encoding of 16 random bytes. Generate bytes through `RandomNumberGenerator.GetBytes(16)`. Validate exact field presence, version, SID parsing, encoding, and decoded 16-byte length. Create with `FileMode.CreateNew`; if another process wins, reread and validate its completed record. Apply/verify protected owner/DACL before considering the created metadata usable. Map malformed, inaccessible, collision, reparse, or ACL failures to one secret-free `SynchronizationMetadataException`.
+
+`SynchronizationMetadataStore.ResolveExisting` never creates. `ResolveOrCreateForValidatedStorage` requires the caller to supply validated storage identity; it preserves an existing valid record and never rotates it. Neither `setup` nor `reset` deletes valid synchronization metadata.
 
 - [ ] **Step 4: Re-run focused tests**
 
 Run the command from Step 2.
 
-Expected: all named-semaphore factory tests pass on macOS because the tests exercise fake ACL API objects, not Windows kernel objects.
+Expected: all metadata tests pass. The serialized test data must never contain a derived semaphore name.
 
-### Task 2: Fail closed for runs and preserve best-effort audit logging
+### Task 2: Derive and validate private Windows semaphore objects
 
 **Files:**
-- Modify: `src/BackupPolicyTrigger/Program.cs:21-88`
-- Modify: `src/BackupPolicyTrigger/RotatingLog.cs:10-103`
-- Modify: `tests/BackupPolicyTrigger.Tests/RotatingLogTests.cs:89-125`
-- Create or modify: `tests/BackupPolicyTrigger.Tests/NamedSemaphoreFactoryTests.cs`
+- Create: `src/BackupPolicyTrigger/NamedSemaphoreFactory.cs`
+- Create: `tests/BackupPolicyTrigger.Tests/NamedSemaphoreFactoryTests.cs`
+- Modify: `src/BackupPolicyTrigger/BackupPolicyTrigger.csproj`
 
 **Interfaces:**
-- `Program.cs` uses `NamedSemaphoreFactory.OpenTrusted("Global\\BackupPolicyTrigger", configuredAdministratorSid)` only after the Windows platform guard and before it creates `HttpClient`/`CommandHost`.
-- `RotatingLog.CreateDefaultLock` delegates to the same factory with `"Global\\BackupPolicyTrigger.Log"`; its injectable `Func<Semaphore>` test seam remains.
 
-- [ ] **Step 1: Add failing machine-lock and audit failure tests**
+```csharp
+internal sealed class UntrustedNamedSemaphoreException : Exception;
 
-Add a factory test that an untrusted existing machine semaphore produces `UntrustedNamedSemaphoreException`, not a usable `Semaphore`.
+internal sealed class NamedSemaphoreFactory(INamedSemaphoreApi api)
+{
+    public Semaphore OpenTrusted(
+        SynchronizationMetadata metadata,
+        SynchronizationLockPurpose purpose);
+}
 
-Add this log regression test:
+internal enum SynchronizationLockPurpose { MachineRun, AuditLog }
+```
+
+- [ ] **Step 1: Write failing lock-name and descriptor tests**
+
+Add tests proving:
 
 ```csharp
 [Fact]
-public void Write_skips_the_audit_line_when_the_named_semaphore_is_untrusted()
-{
-    var log = new RotatingLog(directory,
-        lockFactory: () => throw new UntrustedNamedSemaphoreException("descriptor mismatch"));
+public void OpenTrusted_derives_distinct_machine_and_log_names_from_one_identifier();
 
-    log.Write("run: exit=0 outcome=ObservedRunning");
+[Fact]
+public void OpenTrusted_is_stable_for_the_same_metadata_across_restarts();
 
-    Assert.False(File.Exists(Path.Combine(directory, "trigger.log")));
-}
+[Fact]
+public void OpenTrusted_uses_a_protected_system_and_stored_administrator_dacl();
+
+[Fact]
+public void OpenTrusted_rejects_a_preexisting_different_or_unreadable_descriptor();
 ```
 
-- [ ] **Step 2: Run the focused tests and observe failure**
+A fake `INamedSemaphoreApi` records only a one-way test representation of the requested name; production test output must not write names to console/logs. Assert each name is globally scoped, names differ by purpose, and names are not the old literal `Global\BackupPolicyTrigger` or `Global\BackupPolicyTrigger.Log`. Assert at least the two required full-control allow ACEs with a protected DACL; reject extra, inherited, deny, or mismatched ACEs.
 
-Run:
+- [ ] **Step 2: Run focused tests and observe failure**
 
 ```bash
-dotnet test tests/BackupPolicyTrigger.Tests/BackupPolicyTrigger.Tests.csproj --filter "FullyQualifiedName~NamedSemaphoreFactoryTests|FullyQualifiedName~RotatingLogTests"
+dotnet test tests/BackupPolicyTrigger.Tests/BackupPolicyTrigger.Tests.csproj --filter "FullyQualifiedName~NamedSemaphoreFactoryTests"
 ```
 
-Expected: the new exception type and factory behavior are absent; the log test cannot compile or does not skip.
+Expected: compilation failure because the private-name factory, purpose enum, and untrusted-object exception do not exist.
 
-- [ ] **Step 3: Wire production callers**
+- [ ] **Step 3: Implement derivation and atomic ACL creation**
 
-In `Program.cs`, derive the Configuration administrator SID with `WindowsIdentity.GetCurrent().User` only for the elevated Configuration user. If the security factory cannot create or validate the machine semaphore, write exactly one secret-free error to `Console.Error` such as:
+Derive a name from a versioned, fixed domain label and the 16-byte identifier using a deterministic cryptographic derivation (for example HMAC-SHA-256 over `"BackupPolicyTrigger/machine/v1"` or `"BackupPolicyTrigger/audit/v1"`, Base64Url-encoded). The two labels must yield different names. The identifier and resulting name remain in local variables only; exception text refers only to the lock purpose.
 
+Build a `SemaphoreSecurity` with DACL protection and only non-inherited `SemaphoreRights.FullControl` allow rules for `SYSTEM` and `metadata.AdministratorSid`. Use `SemaphoreAcl.Create(1, 1, name, out createdNew, security)` so ACLs apply during creation. If `createdNew` is false, read access control with `ThreadingAclExtensions.GetAccessControl`, require exact protected-DACL equivalence, and dispose/reject any mismatch. Do not call `SetAccessControl` to repair a pre-existing object.
+
+Convert access/open/type/descriptor failures into `UntrustedNamedSemaphoreException` without including the private name. Retain unnamed, process-local semaphores outside Windows for deterministic tests.
+
+- [ ] **Step 4: Re-run focused tests**
+
+Run the command from Step 2.
+
+Expected: all factory tests pass without exposing names in captured test output.
+
+### Task 3: Wire fail-closed execution and best-effort audit behavior
+
+**Files:**
+- Modify: `src/BackupPolicyTrigger/Program.cs:4-88`
+- Modify: `src/BackupPolicyTrigger/RotatingLog.cs:10-103`
+- Modify: `tests/BackupPolicyTrigger.Tests/RotatingLogTests.cs:89-125`
+- Create or modify: `tests/BackupPolicyTrigger.Tests/SynchronizationExecutionTests.cs`
+
+**Interfaces:**
+- `Program.cs` resolves existing-or-validated legacy metadata, then opens the private machine semaphore before it constructs `HttpClient`, `CommandHost`, `HttpAcronisTransport`, or `Trigger`.
+- `RotatingLog` lazily resolves metadata and opens the private audit semaphore through the same factory. Its `Func<Semaphore>` test seam remains.
+
+- [ ] **Step 1: Write failing caller behavior tests**
+
+Add deterministic tests proving:
+
+```csharp
+[Fact]
+public async Task Invalid_metadata_returns_internal_error_without_transport_or_pending_marker_work();
+
+[Fact]
+public async Task A_valid_held_machine_semaphore_returns_already_running();
+
+[Fact]
+public void Invalid_audit_metadata_skips_the_record_without_writing_identifier_material();
 ```
-Machine synchronization security could not be validated. No backup was requested.
+
+Factor only the pre-dispatch synchronization gate needed to inject metadata/lock outcomes; do not move command parsing, outcome mapping, or transport behavior into a new general host abstraction. The failure test uses factories that throw if a transport, trigger, or pending-marker operation is attempted.
+
+- [ ] **Step 2: Run focused tests and observe failure**
+
+```bash
+dotnet test tests/BackupPolicyTrigger.Tests/BackupPolicyTrigger.Tests.csproj --filter "FullyQualifiedName~SynchronizationExecutionTests|FullyQualifiedName~RotatingLogTests"
 ```
 
-Return `ExitCodes.InternalError` (8). Do not instantiate `HttpClient`, `CommandHost`, `HttpAcronisTransport`, or `Trigger` on this branch; do not write a log record.
+Expected: the synchronization gate/caller contract does not exist and the metadata failure path is not yet observable.
 
-Use a `lockAcquired` flag so `Release()` occurs only after a successful `WaitOne`; retain the existing 20-second contention behavior and exit 11. Catch only the named-security exception and documented named-object access/open errors; do not turn unrelated programming errors into a false success.
+- [ ] **Step 3: Wire the production boundary**
 
-In `RotatingLog`, add `UntrustedNamedSemaphoreException` to the existing factory-failure catch filter. Its default factory must obtain the same Configuration administrator SID and use the shared factory on Windows; retain the local unnamed semaphore on non-Windows. A rejected log semaphore returns without creating a directory or writing an audit line.
+Keep the current static help return before all new work. On Windows after that guard:
+
+1. Resolve validated metadata or atomically create it only under the validated legacy configuration-storage rules.
+2. Open the private machine lock; on `SynchronizationMetadataException`, `UntrustedNamedSemaphoreException`, documented access/open/type errors, or invalid metadata, write exactly one secret-free error:
+
+   ```text
+   Machine synchronization security could not be validated. No backup was requested.
+   ```
+
+   Return `ExitCodes.InternalError` (8). Do not create `HttpClient`, `CommandHost`, `HttpAcronisTransport`, `Trigger`, or mutate the pending marker on this branch.
+3. Preserve the existing 20-second valid-lock wait and `ExitCodes.AlreadyRunning` (11). Release only if `WaitOne` succeeded.
+
+`RotatingLog` resolves the audit lock lazily. Add metadata/untrusted-lock failures to its existing best-effort failure boundary, producing no directory creation, file append, console output, or identifier material. Valid held/audit failure behavior remains unchanged.
 
 - [ ] **Step 4: Run focused regression tests**
 
 Run the command from Step 2.
 
-Expected: factory tests and all rotating-log tests pass; held valid semaphores continue to skip promptly and concurrent valid writers remain serialized.
+Expected: all caller/log tests pass; a valid held machine lock still reports 11, while invalid metadata reports 8 before any external work.
 
-### Task 3: Replace destructive ACL inspection and align publication evidence
+### Task 4: Replace destructive ACL inspection and correct publication evidence
 
 **Files:**
 - Modify: `.scratch/lab-acl-test.ps1`
@@ -161,50 +236,42 @@ Expected: factory tests and all rotating-log tests pass; held valid semaphores c
 - Modify: `docs/security/2026-08-30-publication-readiness-review.md`
 - Create: `docs/security/2026-08-30-publication-readiness-review-addendum.md`
 
-- [ ] **Step 1: Write the non-destructive lab inspector**
+- [ ] **Step 1: Replace the lab script with read-only inspection**
 
-Replace every hard-coded `AcronisBackupTrigger` path and the copy/setup/restore/delete workflow in `.scratch/lab-acl-test.ps1`. The replacement:
+Replace every hard-coded `AcronisBackupTrigger` path and all copy/setup/restore/delete behavior in `.scratch/lab-acl-test.ps1`. The new script:
 
-1. Computes `%ProgramData%\\BackupPolicyTrigger` and `configuration.dat`.
-2. Fails clearly if the directory/configuration file is absent.
-3. Prints only the directory/file owner and access rules from `Get-Acl`—never file contents.
-4. Accepts an optional sentinel string and, when supplied, reports only whether its UTF-8 bytes appear in the encrypted file; it must not print the sentinel or ciphertext.
-5. Does not call the executable, copy, move, decrypt, overwrite, delete, or restore any file.
+1. Locates `%ProgramData%\BackupPolicyTrigger`, `configuration.dat`, and the synchronization metadata file.
+2. Fails clearly when any required item is absent.
+3. Prints owner/DACL information only; it never prints configuration, metadata bytes, random identifiers, derived names, or a caller-provided sentinel.
+4. If a sentinel is supplied, reports only a Boolean indicating whether its UTF-8 bytes occur in encrypted configuration bytes.
+5. Never invokes the executable or copies, moves, decrypts, overwrites, deletes, or restores files.
 
-- [ ] **Step 2: Reconcile the authenticated-publication policy**
+- [ ] **Step 2: Align the unsigned-artifact policy**
 
-Update ADR-0002 to distinguish the controls:
+Update ADR-0002 so an authenticated release attestation is the publisher-authentication boundary and binds source commit, executable SHA-256, `SHA256SUMS.txt`, and `PROVENANCE.txt`. A local digest check detects corruption only after authenticating the release; an adjacent checksum cannot establish publisher identity. Preserve the unsigned/single-file decision and the README’s existing attestation prerequisite.
 
-- The release attestation obtained from the authenticated project release page authenticates the publisher and binds source commit, executable SHA-256, `SHA256SUMS.txt`, and `PROVENANCE.txt`.
-- Local checksum comparison detects post-authentication corruption only; an adjacent `SHA256SUMS.txt` cannot authenticate an attacker-controlled directory.
-- The project remains unsigned; code signing is explicitly out of scope for this release.
+- [ ] **Step 3: Preserve historical review; append corrected evidence**
 
-Do not weaken the existing README’s attestation requirement or add a bare checksum-only installation path.
+Add a review addendum linked from the original report. It must state:
 
-- [ ] **Step 3: Append evidence; preserve historical record**
+- The stale configuration-copy workflow is removed by the read-only replacement.
+- The adjacent-checksum finding is controlled by the pre-existing authenticated-attestation policy, now aligned in ADR-0002.
+- Fixed-name ACL validation was intentionally superseded because it cannot prove origin; private random names plus DACL validation address named-object precreation, subject to Windows lab evidence.
+- The sanitized public-data-disclosure finding was not reproduced.
 
-Create the addendum with references to the reviewed revision and this repair’s commit. Record:
+Do not rewrite historical scan evidence/severity in place, and never name or reproduce the private metadata/derived semaphore values.
 
-- The old configuration-copy finding was tied to the stale `AcronisBackupTrigger` lab script and is removed by the read-only replacement.
-- The original adjacent-checksum finding is mitigated by the existing authenticated-attestation policy; ADR-0002 now states the same boundary.
-- The named-semaphore finding is remediated in code, but final closure requires the Windows lab checks in Task 5.
-- The public-data-disclosure finding was not reproduced in the sanitized repository.
+- [ ] **Step 4: Review the documentation/script diff**
 
-Modify the original review only to add a prominent pointer to the addendum; do not revise its original evidence or severity claims in place.
+Read the four outputs. Verify the script has no mutation command, publication instructions always require attestation before digest comparison, and all review text remains secret-free.
 
-- [ ] **Step 4: Review documentation and script diff**
-
-Read the four resulting files. Confirm no script operation mutates `configuration.dat`, no credential/ciphertext material is emitted, and every publication-verification statement requires authenticated attestation before digest comparison.
-
-### Task 4: Verify source, artifact, and Windows ACL behavior
+### Task 5: Verify source, artifact, and Windows ACL behavior
 
 **Files:**
-- Verify: all security-repair files above
+- Verify: all listed source, test, script, and documentation files
 - Verify: `build/publish.sh`
 
 - [ ] **Step 1: Run the full test suite**
-
-Run:
 
 ```bash
 dotnet test tests/BackupPolicyTrigger.Tests/BackupPolicyTrigger.Tests.csproj
@@ -212,41 +279,45 @@ dotnet test tests/BackupPolicyTrigger.Tests/BackupPolicyTrigger.Tests.csproj
 
 Expected: all tests pass.
 
-- [ ] **Step 2: Publish from a clean archived source revision**
+- [ ] **Step 2: Publish from a clean archived source**
 
-Because the active checkout intentionally contains user-owned changes, create a temporary clean clone/worktree at the security-repair commit and run:
+The active checkout is intentionally dirty with user-owned rename work. Create a temporary clean clone/worktree at the security-repair commit and run:
 
 ```bash
 ./build/publish.sh
 ```
 
-Expected: `BackupPolicyTrigger.exe`, `SHA256SUMS.txt`, and `PROVENANCE.txt` are emitted; the script reports the archived source revision. Verify the executable digest against `SHA256SUMS.txt` and ensure `PROVENANCE.txt` names the security-repair commit. Do not publish from the dirty active checkout.
+Expected: the three-file artifact set is emitted and `PROVENANCE.txt` records the repair commit. Verify the executable digest against `SHA256SUMS.txt`. Do not publish from the dirty checkout.
 
-- [ ] **Step 3: Windows Server lab, no backup run**
+- [ ] **Step 3: Windows Server lab—no backup request**
 
-After copying only the verified three-file artifact set to the Windows lab:
+After release-attestation verification and deployment of only the three verified artifact files:
 
-1. Verify the authenticated release attestation before relying on the digest.
-2. Run `help` and `diagnose`; do not invoke a no-argument command.
-3. Run the revised `.scratch/lab-acl-test.ps1` as the Configuration administrator and verify it performs no configuration mutation.
-4. Inspect `Global\\BackupPolicyTrigger` and `Global\\BackupPolicyTrigger.Log` with an Administrator-created helper only; verify each DACL contains only `SYSTEM` and the Configuration administrator full-control allow rules and is protected.
-5. Hold the valid machine semaphore in a helper, run a harmless interactive command, and confirm bounded lock contention returns 11. Release and dispose the helper semaphore.
-6. As a standard user, confirm opening/creating either named semaphore fails and the configuration/log paths remain inaccessible.
+1. Run `help` and verify it still requires no metadata/configuration/lock access.
+2. Run the revised ACL script as the Configuration administrator and verify it reports ACLs without file mutation or metadata disclosure.
+3. Inspect the metadata file with an Administrator-created helper: verify protected owner/DACL, correct stored administrator SID, and an identifier length of at least 16 bytes without printing it.
+4. Inspect both derived semaphores only through a helper that receives metadata locally; verify protected DACLs contain exactly `SYSTEM` and the stored administrator full-control allow rules. Do not print names.
+5. Hold a valid machine semaphore with the helper, invoke a harmless permitted command, confirm bounded contention exits 11, then release/dispose it.
+6. As a standard user, verify metadata and configuration remain inaccessible and neither semaphore can be opened or created from the unknown name.
 
-Do not invoke `setup`, `select-target`, `list-policies`, `list-resources`, or a backup start unless separately approved.
+Do not invoke `setup`, `reset`, `select-target`, `list-policies`, `list-resources`, or a no-argument backup run without separate approval.
 
-- [ ] **Step 4: Commit only owned files**
+- [ ] **Step 4: Commit only repair-owned paths**
 
-Use explicit pathspec commits so the concurrent rename changes remain untouched:
+Use explicit pathspec commits. Do not stage user-owned rename files:
 
 ```bash
-git add src/BackupPolicyTrigger/NamedSemaphoreFactory.cs \
+git add src/BackupPolicyTrigger/ConfigurationStore.cs \
+        src/BackupPolicyTrigger/SynchronizationMetadataStore.cs \
+        src/BackupPolicyTrigger/NamedSemaphoreFactory.cs \
         src/BackupPolicyTrigger/Program.cs \
         src/BackupPolicyTrigger/RotatingLog.cs \
         src/BackupPolicyTrigger/BackupPolicyTrigger.csproj \
+        tests/BackupPolicyTrigger.Tests/SynchronizationMetadataStoreTests.cs \
         tests/BackupPolicyTrigger.Tests/NamedSemaphoreFactoryTests.cs \
+        tests/BackupPolicyTrigger.Tests/SynchronizationExecutionTests.cs \
         tests/BackupPolicyTrigger.Tests/RotatingLogTests.cs
-git commit --only -m "fix: validate named semaphore ACLs" -- <same source/test paths>
+git commit --only -m "fix: use private validated synchronization names" -- <same source/test paths>
 
 git add .scratch/lab-acl-test.ps1 docs/adr/0002-verified-unsigned-executable.md \
         docs/security/2026-08-30-publication-readiness-review.md \

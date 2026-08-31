@@ -1,6 +1,6 @@
 # Publication Security Repair Design
 
-**Status:** approved
+**Status:** approved — revised random-name architecture
 
 ## Goal
 
@@ -13,15 +13,19 @@ Remove the remaining publication-readiness risks in the renamed `BackupPolicyTri
 - Reconcile the unsigned-artifact ADR with the attestation policy already documented in README.
 - Append an evidence-based correction to the stored publication-readiness review.
 
-## Trusted named semaphores
+## Private named semaphores
 
-Add a focused Windows-only `NamedSemaphore` factory using `System.Threading.AccessControl`. It creates `Global\BackupPolicyTrigger` and `Global\BackupPolicyTrigger.Log` with a protected DACL granting full control only to `SYSTEM` and the Configuration administrator SID.
+Fixed global names cannot establish their creator: a low-privilege process can precreate an object with the expected DACL and retain its creator handle. The application instead uses a cryptographically random, per-installation identifier that only authorized accounts can read.
 
-When the semaphore already exists, the factory reads its security descriptor and accepts it only when the protected DACL and access rules exactly match the expected descriptor for the current Configuration administrator. A mismatched, inaccessible, or malformed existing object is untrusted.
+`SynchronizationMetadataStore` stores a version, Configuration administrator SID, and at least 128 random bits from `RandomNumberGenerator` inside the protected configuration directory. It creates the metadata atomically with `FileMode.CreateNew`, then applies the same protected owner/DACL model as configuration storage: only `SYSTEM` and the stored administrator receive full control. The identifier and all derived semaphore names are secret operational metadata: they must never be printed, logged, diagnosed, or included in review evidence.
 
-The machine-run lock fails closed: print a synchronization-security error, return existing `ExitCodes.InternalError` (8), and do not perform any configuration, transport, pending-marker, or backup-start work. A valid, held machine semaphore keeps current behavior and returns `AlreadyRunning` (11) after the bounded wait.
+Before metadata is trusted, the store rejects directory or metadata reparse points, validates the protected owner/DACL, validates the serialized version/SID/random-byte format, and requires the stored SID to match the validated Configuration administrator. Existing installations derive that administrator from validated pre-existing protected storage; they must not bind it to whichever account first invokes the upgraded executable. Missing legacy metadata is created atomically only after this validation. Setup and reset retain a valid identifier rather than rotating it casually.
 
-The log semaphore remains best effort. An untrusted or inaccessible log semaphore causes the audit line to be skipped; it never changes the command result. The default factories retain process-local semaphores on non-Windows so deterministic macOS tests remain available.
+`NamedSemaphoreFactory` derives distinct machine and log names from the private identifier using fixed domain labels. It uses `System.Threading.AccessControl` to create each Windows semaphore with a protected DACL granting full control only to `SYSTEM` and the stored Configuration administrator SID. For an existing derived object, it requires an exact protected-DACL match; a mismatched, inaccessible, malformed, or wrong-type object is untrusted. Random names prevent a low-privilege account from guessing the object before creation; DACL validation limits use if a name is later disclosed.
+
+The machine-run lock fails closed: print a synchronization-security error, return existing `ExitCodes.InternalError` (8), and do not perform configuration loading, transport construction, pending-marker changes, or a backup start. A valid, held machine semaphore keeps current behavior and returns `AlreadyRunning` (11) after the bounded wait.
+
+The log semaphore remains best effort. Untrusted/inaccessible metadata or a log semaphore skips that audit line only. The default factories retain process-local semaphores on non-Windows so deterministic macOS tests remain available.
 
 ## ACL lab script
 
@@ -35,11 +39,12 @@ The security review gains an addendum rather than rewriting its historical scan:
 
 ## Tests and verification
 
-- Add deterministic tests for expected named-semaphore DACL construction and rejection of invalid existing-object descriptors through an injectable factory/security-reader seam.
-- Add machine-lock tests proving an untrusted object returns 8 without constructing transport or touching the pending marker; valid held locks still return 11.
-- Add log tests proving invalid log-lock security skips the record.
+- Add deterministic tests for 128-bit metadata generation, atomic concurrent first use, stable restart identity, reparse/ACL/SID/format rejection, and distinct derived machine/log names.
+- Add factory tests for expected named-semaphore DACL construction and rejection of invalid existing-object descriptors through an injectable security-reader seam.
+- Add machine-lock tests proving invalid metadata or an untrusted object returns 8 without constructing transport or touching the pending marker; valid held locks still return 11.
+- Add log tests proving invalid metadata/log-lock security skips the record and never emits the identifier.
 - Run the full suite and publish from a clean archived-HEAD source.
-- On the Windows lab, verify creation of both named semaphore DACLs, a valid concurrent-run lock result, and non-destructive ACL script output. Do not invoke a no-argument backup run.
+- On the Windows lab, verify the protected metadata file and creation of both derived semaphore DACLs, a valid concurrent-run lock result, and non-destructive ACL script output. Do not invoke a no-argument backup run.
 
 ## Non-goals
 
