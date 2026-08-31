@@ -19,6 +19,10 @@ _Avoid_: Machine name alone
 **Configuration administrator**:
 The local Administrator account that performs setup, reset, and routine post-backup triggering on a server.
 _Avoid_: Standard user, service account
+**Deployment identity**:
+The private, stable random value that names this configured trigger deployment’s synchronization objects. It is stored only within validated protected storage and is neither operator input nor diagnostic output.
+_Avoid_: Installation identifier, installation ID
+
 
 **Backup request**:
 The request to start a protection policy. Acronis accepting the request is distinct from the resulting backup finishing.
