@@ -92,21 +92,17 @@ Move the legacy project file, package lock, properties, application files such a
 
 - [ ] **Step 3: Rename the root application namespace with the C# language server**
 
-After the moves, target the root `AcronisBackupTrigger` namespace identifier in `BackupTrigger.cs` (zero-based position line 2, character 10). Inspect the single project-aware preview and require it to include the nested test namespace edits before applying it:
+After the moves, target the root `AcronisBackupTrigger` namespace identifier in `BackupTrigger.cs` (line 3, as required by the 1-indexed `xd://lsp` schema). Inspect the single project-aware preview and require it to include the nested test namespace edits before applying it:
 
 ```text
-write xd://lsp {"operation":"rename","path":"src/BackupPolicyTrigger/BackupTrigger.cs","position":{"line":2,"character":10},"newName":"BackupPolicyTrigger","preview":true}
-write xd://lsp {"operation":"rename","path":"src/BackupPolicyTrigger/BackupTrigger.cs","position":{"line":2,"character":10},"newName":"BackupPolicyTrigger","apply":true}
+write xd://lsp {"action":"rename","file":"src/BackupPolicyTrigger/BackupTrigger.cs","line":3,"symbol":"AcronisBackupTrigger","new_name":"BackupPolicyTrigger","apply":false}
+write xd://lsp {"action":"rename","file":"src/BackupPolicyTrigger/BackupTrigger.cs","line":3,"symbol":"AcronisBackupTrigger","new_name":"BackupPolicyTrigger","apply":true}
 ```
 
-If `xd://lsp` is unavailable, either operation fails, or the preview or applied edit omits any source, test, or project reference, use the deterministic fallback. First enumerate every legacy source, test, and project reference in deterministic path-and-line order:
+If `xd://lsp` is unavailable, either operation fails, or the preview or applied edit omits any source, test, or project reference, use the deterministic fallback. First enumerate every legacy source, test, and project reference in deterministic path-and-line order with the harness built-in `grep` tool. Set `gitignore:false` so the scan includes untracked moved destination files:
 
-```bash
-git grep -n -E '\bAcronisBackupTrigger(\.Tests)?\b' -- \
-  ':(glob)src/**/*.cs' \
-  ':(glob)tests/**/*.cs' \
-  ':(glob)**/*.csproj' \
-  ':(glob)**/*.sln'
+```text
+grep {"i":"Enumerating legacy references","pattern":"\\bAcronisBackupTrigger(\\.Tests)?\\b","path":"src;tests;**/*.csproj;**/*.sln","case":true,"gitignore":false,"skip":0}
 ```
 
 Rename every emitted C# namespace declaration, `using` directive, and qualified reference; every `.csproj` assembly name, root namespace, project reference, and path; and every `.sln` project display name and path. Re-run the enumeration and require no output, then run:
@@ -141,10 +137,8 @@ Expected: compilation succeeds far enough to expose only missing deployment-iden
 
 Before the final `git add`, scan the working-tree destination directories (including untracked moved files) and require no legacy namespace references:
 
-```bash
-git grep --no-index -n -E '\bAcronisBackupTrigger(\.Tests)?\b' -- \
-  src/BackupPolicyTrigger \
-  tests/BackupPolicyTrigger.Tests
+```text
+grep {"i":"Checking moved namespaces","pattern":"\\bAcronisBackupTrigger(\\.Tests)?\\b","path":"src/BackupPolicyTrigger;tests/BackupPolicyTrigger.Tests","case":true,"gitignore":false,"skip":0}
 ```
 
 Then stage and commit the coherent migration:
