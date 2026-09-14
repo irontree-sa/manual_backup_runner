@@ -1,7 +1,7 @@
 using System.Diagnostics;
-using AcronisBackupTrigger;
+using BackupPolicyTrigger;
 
-namespace AcronisBackupTrigger.Tests;
+namespace BackupPolicyTrigger.Tests;
 
 public sealed class HelpCommandTests
 {
@@ -49,7 +49,7 @@ public sealed class HelpCommandTests
         var guide = output.ToString();
 
         // No-argument invocation.
-        Assert.Contains("AcronisBackupTrigger.exe", guide);
+        Assert.Contains("BackupPolicyTrigger.exe", guide);
 
         // Every command is documented.
         Assert.Contains("setup", guide);
@@ -80,7 +80,7 @@ public sealed class HelpCommandTests
         Assert.Contains("allow-list", guide);
 
         // Configuration and log locations.
-        Assert.Contains(@"C:\ProgramData\AcronisBackupTrigger", guide);
+        Assert.Contains(@"C:\ProgramData\BackupPolicyTrigger", guide);
         Assert.Contains("trigger.log", guide);
     }
 
@@ -159,7 +159,7 @@ public sealed class HelpCommandTests
     }
 
     private static string ExecutablePath =>
-        Path.Combine(AppContext.BaseDirectory, "AcronisBackupTrigger.dll");
+        Path.Combine(AppContext.BaseDirectory, "BackupPolicyTrigger.dll");
 
     private sealed class RecordingProtector : ISecretProtector
     {

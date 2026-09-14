@@ -1,4 +1,4 @@
-namespace AcronisBackupTrigger;
+namespace BackupPolicyTrigger;
 
 /// <summary>A root <c>policy.protection.total</c> protection policy.</summary>
 public sealed record AcronisPolicy(string Id, string Name);

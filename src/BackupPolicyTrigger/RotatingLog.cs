@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace AcronisBackupTrigger;
+namespace BackupPolicyTrigger;
 
 /// <summary>
 /// Appends one sanitized line per event to a bounded log beside the configuration.
@@ -36,7 +36,7 @@ public sealed class RotatingLog(
 
     private static Semaphore CreateDefaultLock() =>
         OperatingSystem.IsWindows()
-            ? new Semaphore(1, 1, "Global\\AcronisBackupTrigger.Log")
+            ? new Semaphore(1, 1, "Global\\BackupPolicyTrigger.Log")
             : new Semaphore(1, 1);
 
     public void Write(string message)

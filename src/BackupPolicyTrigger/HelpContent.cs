@@ -1,4 +1,4 @@
-namespace AcronisBackupTrigger;
+namespace BackupPolicyTrigger;
 
 public static class HelpContent
 {
@@ -7,7 +7,7 @@ public static class HelpContent
         Acronis Backup Trigger
 
         Run after the source application's backup:
-          AcronisBackupTrigger.exe
+          BackupPolicyTrigger.exe
 
         Commands:
           help            Print this guide.
@@ -20,7 +20,7 @@ public static class HelpContent
           reset           Remove local configuration (elevated Administrator).
 
         Identity:
-          Routine run, diagnose, and discovery require the Configuration administrator identity permitted to read C:\ProgramData\AcronisBackupTrigger.
+          Routine run, diagnose, and discovery require the Configuration administrator identity permitted to read C:\ProgramData\BackupPolicyTrigger.
           setup, select-target, clear-pending, and reset additionally require an elevated Administrator session.
 
         Safety:
@@ -34,6 +34,6 @@ public static class HelpContent
           If endpoint security blocks the unsigned executable, ask client IT for a hash/path allow-list exception.
 
         Logs:
-          C:\ProgramData\AcronisBackupTrigger\trigger.log
+          C:\ProgramData\BackupPolicyTrigger\trigger.log
         """;
 }

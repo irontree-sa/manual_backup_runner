@@ -1,4 +1,4 @@
-namespace AcronisBackupTrigger;
+namespace BackupPolicyTrigger;
 
 public enum TokenResult
 {

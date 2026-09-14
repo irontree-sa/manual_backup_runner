@@ -1,7 +1,7 @@
 using System.Net;
-using AcronisBackupTrigger;
+using BackupPolicyTrigger;
 
-namespace AcronisBackupTrigger.Tests;
+namespace BackupPolicyTrigger.Tests;
 
 public sealed class DiscoveryTests
 {

@@ -1,4 +1,4 @@
-namespace AcronisBackupTrigger;
+namespace BackupPolicyTrigger;
 
 /// <summary>
 /// Runs the configured protection policy and reports a typed outcome plus the

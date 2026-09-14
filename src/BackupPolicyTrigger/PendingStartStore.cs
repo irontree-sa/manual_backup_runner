@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace AcronisBackupTrigger;
+namespace BackupPolicyTrigger;
 
 /// <summary>
 /// Records that a start request left this machine but its outcome never became known.

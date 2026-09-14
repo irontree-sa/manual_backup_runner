@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace AcronisBackupTrigger;
+namespace BackupPolicyTrigger;
 
 /// <summary>Outcome of reading the execution state Acronis reports for a policy on one resource.</summary>
 public enum ExecutionState

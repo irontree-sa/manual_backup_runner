@@ -1,6 +1,6 @@
-using AcronisBackupTrigger;
+using BackupPolicyTrigger;
 
-namespace AcronisBackupTrigger.Tests;
+namespace BackupPolicyTrigger.Tests;
 
 /// <summary>
 /// Deterministic Acronis transport double. No test using it contacts Acronis.

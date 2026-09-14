@@ -1,7 +1,7 @@
 using System.Diagnostics;
-using AcronisBackupTrigger;
+using BackupPolicyTrigger;
 
-namespace AcronisBackupTrigger.Tests;
+namespace BackupPolicyTrigger.Tests;
 
 public sealed class RotatingLogTests : IDisposable
 {

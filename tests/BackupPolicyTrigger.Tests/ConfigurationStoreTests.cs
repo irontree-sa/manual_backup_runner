@@ -1,7 +1,7 @@
-using AcronisBackupTrigger;
+using BackupPolicyTrigger;
 using System.Text.Json;
 
-namespace AcronisBackupTrigger.Tests;
+namespace BackupPolicyTrigger.Tests;
 
 public sealed class ConfigurationStoreTests : IDisposable
 {
