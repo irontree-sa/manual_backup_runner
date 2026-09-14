@@ -1,0 +1,29 @@
+name: Build attested release artifact
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  attestations: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: ./build/publish.sh
+      - name: Attest production artifact
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: artifacts/win-x64/*
+      - name: Upload production artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BackupPolicyTrigger-win-x64
+          path: artifacts/win-x64/
+          if-no-files-found: error

@@ -166,6 +166,10 @@ exists are console-only.
 ./build/publish.sh
 ```
 
+The CI workflow restores and tests `BackupPolicyTrigger.sln` on Linux and
+Windows. The manually dispatched **Build attested release artifact** workflow
+publishes only the production package.
+
 Requires the .NET 8 SDK. The build is a cross-compile: it produces the `win-x64`
 executable from any host, including macOS. It refuses to run from a dirty
 worktree and instead builds from a clean `git archive HEAD` tree, so the
@@ -201,6 +205,11 @@ file cannot contain its own hash. `PROVENANCE.txt` records the `source_commit`
 and the SHA-256 of both executables. The production `artifacts/win-x64/`
 package remains harness-free; `build/publish.sh` refuses to publish if the
 harness executable is present.
+
+The manifests and checksums use only package-member filenames and release
+metadata; they do not disclose deployment identities, derived semaphore names,
+credentials, or fixture paths.
+
 
 The harness exercises protected-storage, metadata, named-semaphore, and startup
 dispatch security against real Windows ACL and kernel-object behavior. It
