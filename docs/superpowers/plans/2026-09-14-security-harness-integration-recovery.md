@@ -21,6 +21,12 @@
 
 ---
 
+## Recovery inputs
+
+- Committed security/harness source: `verify/windows-harness` at `6a76c685811596fd8328330d7fb3db65851d1b01`.
+- Original dirty source: `repair/release-hardening` at `1922673a1f9e8e5f200c29d46b8b2c224992c1df`.
+- Original checkout preservation proof: the pre- and post-recovery `git status --porcelain=v2 --branch` SHA-256 values are both `e28ad7474b7f4fea63fe5e30e241b53ace48d1f3e416e4488e2ce1b3c6065822`.
+
 ### Task 1: Create the canonical recovery branch and record the two inputs
 
 **Files:**
@@ -86,7 +92,32 @@ Move the legacy project file, package lock, properties, application files such a
 
 - [ ] **Step 3: Rename the application and test namespaces with the C# language server**
 
-Use a project-aware rename from `AcronisBackupTrigger` to `BackupPolicyTrigger`, then rename test namespaces to `BackupPolicyTrigger.Tests`. Update assembly/project identities, project references, solution paths, and test discovery names through the same project-aware tooling; do not use text replacement for cross-file symbol migration.
+After the moves, use `xd://lsp` at the namespace identifier (zero-based positions) and inspect each preview before applying it:
+
+```text
+write xd://lsp {"operation":"rename","path":"src/BackupPolicyTrigger/BackupTrigger.cs","position":{"line":2,"character":10},"newName":"BackupPolicyTrigger","preview":true}
+write xd://lsp {"operation":"rename","path":"src/BackupPolicyTrigger/BackupTrigger.cs","position":{"line":2,"character":10},"newName":"BackupPolicyTrigger","apply":true}
+write xd://lsp {"operation":"rename","path":"tests/BackupPolicyTrigger.Tests/BackupTriggerTests.cs","position":{"line":2,"character":10},"newName":"BackupPolicyTrigger.Tests","preview":true}
+write xd://lsp {"operation":"rename","path":"tests/BackupPolicyTrigger.Tests/BackupTriggerTests.cs","position":{"line":2,"character":10},"newName":"BackupPolicyTrigger.Tests","apply":true}
+```
+
+If `xd://lsp` is unavailable, first enumerate every legacy source, test, and project reference in deterministic path-and-line order:
+
+```bash
+git grep -n -E '\bAcronisBackupTrigger(\.Tests)?\b' -- \
+  ':(glob)src/**/*.cs' \
+  ':(glob)tests/**/*.cs' \
+  ':(glob)**/*.csproj' \
+  ':(glob)**/*.sln'
+```
+
+Rename every emitted C# namespace declaration, `using` directive, and qualified reference; every `.csproj` assembly name, root namespace, project reference, and path; and every `.sln` project display name and path. Re-run the enumeration and require no output, then run:
+
+```bash
+dotnet test BackupPolicyTrigger.sln --configuration Release --nologo
+```
+
+Use the language-server route whenever available; the deterministic fallback is only for environments without it.
 
 - [ ] **Step 4: Repair the solution membership**
 
