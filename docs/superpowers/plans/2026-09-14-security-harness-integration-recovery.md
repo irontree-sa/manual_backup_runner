@@ -88,7 +88,7 @@ Expected: `Program.cs`, `AdministratorGate.cs`, and `ConfigurationStore.cs` are 
 
 - [ ] **Step 2: Move only legacy files that do not have an authoritative security replacement**
 
-Move the legacy project file, package lock, properties, application files such as `BackupTrigger.cs`, `CommandHost.cs`, `Diagnostics.cs`, `Discovery.cs`, `HelpContent.cs`, `HttpAcronisTransport.cs`, `PendingStartStore.cs`, `RotatingLog.cs`, and `Trigger.cs`, plus their non-overlapping test counterparts, into the new project directories. Do not overwrite destination `Program.cs`, `AdministratorGate.cs`, `ConfigurationStore.cs`, `SynchronizationMetadataStore.cs`, `NamedSemaphoreFactory.cs`, or `StartupSynchronizationGate.cs`.
+Move the legacy project file, application files such as `BackupTrigger.cs`, `CommandHost.cs`, `Diagnostics.cs`, `Discovery.cs`, `HelpContent.cs`, `HttpAcronisTransport.cs`, `PendingStartStore.cs`, `RotatingLog.cs`, and `Trigger.cs`, plus their non-overlapping test counterparts, into the new project directories. The verified pre-move listing and all reachable history contain no `src/AcronisBackupTrigger/packages.lock.json` or `Properties/**`; do not fabricate replacements. Do not overwrite destination `Program.cs`, `AdministratorGate.cs`, `ConfigurationStore.cs`, `SynchronizationMetadataStore.cs`, `NamedSemaphoreFactory.cs`, or `StartupSynchronizationGate.cs`.
 
 - [ ] **Step 3: Rename the root application namespace with the C# language server**
 
