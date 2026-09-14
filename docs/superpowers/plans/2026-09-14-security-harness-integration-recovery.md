@@ -90,18 +90,16 @@ Expected: `Program.cs`, `AdministratorGate.cs`, and `ConfigurationStore.cs` are 
 
 Move the legacy project file, package lock, properties, application files such as `BackupTrigger.cs`, `CommandHost.cs`, `Diagnostics.cs`, `Discovery.cs`, `HelpContent.cs`, `HttpAcronisTransport.cs`, `PendingStartStore.cs`, `RotatingLog.cs`, and `Trigger.cs`, plus their non-overlapping test counterparts, into the new project directories. Do not overwrite destination `Program.cs`, `AdministratorGate.cs`, `ConfigurationStore.cs`, `SynchronizationMetadataStore.cs`, `NamedSemaphoreFactory.cs`, or `StartupSynchronizationGate.cs`.
 
-- [ ] **Step 3: Rename the application and test namespaces with the C# language server**
+- [ ] **Step 3: Rename the root application namespace with the C# language server**
 
-After the moves, use `xd://lsp` at the namespace identifier (zero-based positions) and inspect each preview before applying it:
+After the moves, target the root `AcronisBackupTrigger` namespace identifier in `BackupTrigger.cs` (zero-based position line 2, character 10). Inspect the single project-aware preview and require it to include the nested test namespace edits before applying it:
 
 ```text
 write xd://lsp {"operation":"rename","path":"src/BackupPolicyTrigger/BackupTrigger.cs","position":{"line":2,"character":10},"newName":"BackupPolicyTrigger","preview":true}
 write xd://lsp {"operation":"rename","path":"src/BackupPolicyTrigger/BackupTrigger.cs","position":{"line":2,"character":10},"newName":"BackupPolicyTrigger","apply":true}
-write xd://lsp {"operation":"rename","path":"tests/BackupPolicyTrigger.Tests/BackupTriggerTests.cs","position":{"line":2,"character":10},"newName":"BackupPolicyTrigger.Tests","preview":true}
-write xd://lsp {"operation":"rename","path":"tests/BackupPolicyTrigger.Tests/BackupTriggerTests.cs","position":{"line":2,"character":10},"newName":"BackupPolicyTrigger.Tests","apply":true}
 ```
 
-If `xd://lsp` is unavailable, first enumerate every legacy source, test, and project reference in deterministic path-and-line order:
+If `xd://lsp` is unavailable, either operation fails, or the preview or applied edit omits any source, test, or project reference, use the deterministic fallback. First enumerate every legacy source, test, and project reference in deterministic path-and-line order:
 
 ```bash
 git grep -n -E '\bAcronisBackupTrigger(\.Tests)?\b' -- \
@@ -117,7 +115,7 @@ Rename every emitted C# namespace declaration, `using` directive, and qualified 
 dotnet test BackupPolicyTrigger.sln --configuration Release --nologo
 ```
 
-Use the language-server route whenever available; the deterministic fallback is only for environments without it.
+Use the language-server route only when its preview and applied edits are complete; otherwise use the fallback.
 
 - [ ] **Step 4: Repair the solution membership**
 
@@ -140,6 +138,16 @@ dotnet test BackupPolicyTrigger.sln --configuration Release --nologo
 Expected: compilation succeeds far enough to expose only missing deployment-identity integration, not missing paths, namespaces, malformed solution entries, or duplicate source declarations.
 
 - [ ] **Step 6: Commit the coherent project migration**
+
+Before the final `git add`, scan the working-tree destination directories (including untracked moved files) and require no legacy namespace references:
+
+```bash
+git grep --no-index -n -E '\bAcronisBackupTrigger(\.Tests)?\b' -- \
+  src/BackupPolicyTrigger \
+  tests/BackupPolicyTrigger.Tests
+```
+
+Then stage and commit the coherent migration:
 
 ```bash
 git add BackupPolicyTrigger.sln src tests tools
