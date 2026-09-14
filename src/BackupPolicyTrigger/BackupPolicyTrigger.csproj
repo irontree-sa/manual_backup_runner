@@ -7,6 +7,7 @@
     <Nullable>enable</Nullable>
     <ProtectedDataVersion>8.0.0</ProtectedDataVersion>
     <ThreadingAccessControlVersion>8.0.0</ThreadingAccessControlVersion>
+  </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="$(ProtectedDataVersion)" />
