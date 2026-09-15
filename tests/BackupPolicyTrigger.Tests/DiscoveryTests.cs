@@ -43,7 +43,7 @@ public sealed class DiscoveryTests
         Assert.Equal(DiscoveryStatus.Succeeded, result.Status);
         Assert.Equal(
             [new AcronisPolicy("11111111-1111-1111-1111-111111111111", "Servers daily"),
-             new AcronisPolicy("33333333-3333-3333-3333-333333333333", "SQL hourly")],
+                new AcronisPolicy("33333333-3333-3333-3333-333333333333", "SQL hourly")],
             result.Items);
     }
 
@@ -72,7 +72,7 @@ public sealed class DiscoveryTests
         Assert.Equal(DiscoveryStatus.Succeeded, result.Status);
         Assert.Equal(
             [new AcronisResource("44444444-4444-4444-4444-444444444444", "DESKTOP-A"),
-             new AcronisResource("55555555-5555-5555-5555-555555555555", "SQL-01 (prod)")],
+                new AcronisResource("55555555-5555-5555-5555-555555555555", "SQL-01 (prod)")],
             result.Items);
         Assert.Contains("applied_to_policy_id=11111111-1111-1111-1111-111111111111", handler.Requests[^1].Uri);
         Assert.Contains("is_group=false", handler.Requests[^1].Uri);

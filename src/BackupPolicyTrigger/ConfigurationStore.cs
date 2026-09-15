@@ -301,7 +301,7 @@ public sealed class ConfigurationStore(string directory, ISecretProtector protec
         if (File.Exists(path)) File.Delete(path);
     }
 
-[SupportedOSPlatform("windows")]
+    [SupportedOSPlatform("windows")]
     internal static void Restrict(FileSystemInfo target, SecurityIdentifier administrator)
     {
         var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
@@ -312,28 +312,28 @@ public sealed class ConfigurationStore(string directory, ISecretProtector protec
         switch (target)
         {
             case DirectoryInfo dir:
-            {
-                var security = new DirectorySecurity();
-                Apply(security, system, administrator, inheritance);
-                dir.SetAccessControl(security);
-                break;
-            }
+                {
+                    var security = new DirectorySecurity();
+                    Apply(security, system, administrator, inheritance);
+                    dir.SetAccessControl(security);
+                    break;
+                }
             case FileInfo file:
-            {
-                var security = new FileSecurity();
-                Apply(security, system, administrator, inheritance);
-                file.SetAccessControl(security);
-                break;
-            }
+                {
+                    var security = new FileSecurity();
+                    Apply(security, system, administrator, inheritance);
+                    file.SetAccessControl(security);
+                    break;
+                }
         }
     }
 
-[SupportedOSPlatform("windows")]
+    [SupportedOSPlatform("windows")]
     internal static void Apply(
-        FileSystemSecurity security,
-        SecurityIdentifier system,
-        SecurityIdentifier administrator,
-        InheritanceFlags inheritance)
+            FileSystemSecurity security,
+            SecurityIdentifier system,
+            SecurityIdentifier administrator,
+            InheritanceFlags inheritance)
     {
         security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
         security.SetOwner(administrator);
@@ -344,11 +344,11 @@ public sealed class ConfigurationStore(string directory, ISecretProtector protec
         security.AddAccessRule(new FileSystemAccessRule(administrator, FileSystemRights.FullControl, inheritance, PropagationFlags.None, AccessControlType.Allow));
     }
 
-[SupportedOSPlatform("windows")]
+    [SupportedOSPlatform("windows")]
     internal static bool HasExactRules(
-        FileSystemSecurity security,
-        SecurityIdentifier administrator,
-        InheritanceFlags inheritance)
+            FileSystemSecurity security,
+            SecurityIdentifier administrator,
+            InheritanceFlags inheritance)
     {
         var rules = security.GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier))
             .Cast<FileSystemAccessRule>()
