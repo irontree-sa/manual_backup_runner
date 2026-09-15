@@ -106,19 +106,15 @@ cp "$threading_accesscontrol_package/LICENSE.TXT" \
   "$output/THREADING-ACCESSCONTROL-MIT-LICENSE.txt"
 cp "$threading_accesscontrol_package/THIRD-PARTY-NOTICES.TXT" \
   "$output/THREADING-ACCESSCONTROL-THIRD-PARTY-NOTICES.txt"
-cp "$build_root/.scratch/lab-standard-user-security.ps1" \
-  "$output/lab-standard-user-security.ps1"
-cp "$build_root/.scratch/lab-standard-user-coordinator.ps1" \
-  "$output/lab-standard-user-coordinator.ps1"
 
 printf 'source_commit=%s\nfile=BackupPolicyTrigger.exe\nsha256=%s\nfile=BackupPolicyTrigger.WindowsVerification.exe\nsha256=%s\nruntime_framework_version=%s\nprotected_data_version=%s\nthreading_accesscontrol_version=%s\n' \
   "$revision" "$app_sha" "$harness_sha" "$runtime_version" \
   "$protected_data_version" "$threading_accesscontrol_version" > "$output/PROVENANCE.txt"
 
-# The manifest enumerates every deliverable in the package, including the
-# package metadata files and the two lab-gate scripts. SHA256SUMS.txt covers
-# every package member except itself (the conventional self-coverage
-# exception): a checksum file cannot contain its own hash.
+# The manifest enumerates every deliverable in the package, including package
+# metadata. SHA256SUMS.txt covers every package member except itself (the
+# conventional self-coverage exception): a checksum file cannot contain its
+# own hash.
 {
   printf 'BackupPolicyTrigger.exe\n'
   printf 'BackupPolicyTrigger.WindowsVerification.exe\n'
@@ -134,8 +130,6 @@ printf 'source_commit=%s\nfile=BackupPolicyTrigger.exe\nsha256=%s\nfile=BackupPo
   printf 'MANIFEST.txt\n'
   printf 'PROVENANCE.txt\n'
   printf 'SHA256SUMS.txt\n'
-  printf 'lab-standard-user-security.ps1\n'
-  printf 'lab-standard-user-coordinator.ps1\n'
 } > "$output/MANIFEST.txt"
 
 (
@@ -153,9 +147,7 @@ printf 'source_commit=%s\nfile=BackupPolicyTrigger.exe\nsha256=%s\nfile=BackupPo
     THREADING-ACCESSCONTROL-MIT-LICENSE.txt \
     THREADING-ACCESSCONTROL-THIRD-PARTY-NOTICES.txt \
     MANIFEST.txt \
-    PROVENANCE.txt \
-    lab-standard-user-security.ps1 \
-    lab-standard-user-coordinator.ps1
+    PROVENANCE.txt
 ) > "$output/SHA256SUMS.txt"
 
 chmod 0644 \
@@ -171,10 +163,7 @@ chmod 0644 \
   "$output/THREADING-ACCESSCONTROL-MIT-LICENSE.txt" \
   "$output/THREADING-ACCESSCONTROL-THIRD-PARTY-NOTICES.txt" \
   "$output/MANIFEST.txt" \
-  "$output/PROVENANCE.txt" \
-  "$output/SHA256SUMS.txt" \
-  "$output/lab-standard-user-security.ps1" \
-  "$output/lab-standard-user-coordinator.ps1"
+  "$output/PROVENANCE.txt"
 
 printf '\nPublished %s\nSHA-256 %s\nPublished %s\nSHA-256 %s\n' \
   "$app_exe" "$app_sha" "$harness_exe" "$harness_sha"

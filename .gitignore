@@ -6,5 +6,7 @@ bin/
 obj/
 artifacts/
 
-# .scratch/ is this repository's local issue tracker and remains versioned.
-!.scratch/
+# Agent state and local issue tracking must not enter source control.
+.claude/
+.superpowers/
+.scratch/

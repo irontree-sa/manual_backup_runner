@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Issues are tracked as local Markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
+Issues are tracked in [GitHub](https://github.com/irontree-sa/manual_backup_runner/issues). See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

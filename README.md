@@ -193,76 +193,11 @@ the production release:
 It builds the application verification binary and the self-contained
 `BackupPolicyTrigger.WindowsVerification.exe` harness from the same clean
 `git archive HEAD` tree, into `artifacts/windows-verification/`. That directory
-carries a `MANIFEST.txt` enumerating every packaged payload — the two
-executables (`BackupPolicyTrigger.exe` and
-`BackupPolicyTrigger.WindowsVerification.exe`), the two lab-gate scripts
-(`lab-standard-user-coordinator.ps1` and `lab-standard-user-security.ps1`),
-the project `LICENSE` and `NOTICE`, the Microsoft .NET Library License, the
-version-matched .NET runtime, ProtectedData, and ThreadingAccessControl license/notice
-companions, and the package metadata files `MANIFEST.txt`, `PROVENANCE.txt`, and
-`SHA256SUMS.txt` themselves. `SHA256SUMS.txt` covers every other package member
-but not itself — the conventional self-coverage exception, since a checksum
-file cannot contain its own hash. `PROVENANCE.txt` records the `source_commit`
-and the SHA-256 of both executables. The production `artifacts/win-x64/`
+carries a `MANIFEST.txt` enumerating its executables, project license and notice,
+version-matched dependency license/notice companions, and `MANIFEST.txt`,
+`PROVENANCE.txt`, and `SHA256SUMS.txt`. The production `artifacts/win-x64/`
 package remains harness-free; `build/publish.sh` refuses to publish if the
 harness executable is present.
-
-The manifests and checksums use only package-member filenames and release
-metadata; they do not disclose deployment identities, derived semaphore names,
-credentials, or fixture paths.
-
-
-The harness exercises protected-storage, metadata, named-semaphore, and startup
-dispatch security against real Windows ACL and kernel-object behavior. It
-touches only a randomized fixture under `%TEMP%`; it never reads or modifies
-production storage, credentials, pending markers, or Acronis resources, and it
-never starts a backup.
-
-### Standard-user lab gate
-
-Before a release is authorized, the standard-user security gate must pass under
-an approved non-administrator account. The gate is a two-account procedure
-driven by a privileged coordinator, both delivered in the verification package
-as `lab-standard-user-coordinator.ps1` and `lab-standard-user-security.ps1`.
-The coordinator is the only end-to-end entry point: it performs the privileged
-setup, records the administrator side of traversal, and then launches the
-standard-user gate itself. The gate script is never run directly — it is
-invoked only by the coordinator, which supplies the ephemeral fixture token and
-the ephemerally disclosed semaphore name over the child's standard input.
-
-Run the coordinator once, elevated, as the Configuration administrator:
-
-```powershell
-.\lab-standard-user-coordinator.ps1
-```
-
-The coordinator prompts for the standard-user account and password (the
-password is read as a `SecureString` and never echoed or persisted), then:
-
-1. Creates the dedicated lab fixture parent
-   `%ProgramData%\BackupPolicyTrigger.WindowsVerification` and grants traverse
-   to both the Configuration administrator and the standard user.
-2. Creates a protected child restricted to `SYSTEM` and the Configuration
-   administrator, and writes placeholder configuration and synchronization
-   metadata into it.
-3. Creates and holds a live named semaphore with the production DACL.
-4. Records the administrator side of traversal, then launches the standard-user
-   gate under the non-administrator account, handing it the ephemeral fixture
-   token and the ephemerally disclosed semaphore name over the child's standard
-   input.
-5. Collects the gate's fixed check identifiers, releases the semaphore, and
-   removes the fixture.
-
-The gate accepts no sensitive values in arguments. It reads the ephemeral
-fixture token and the ephemerally disclosed semaphore name from standard input,
-verifies the shared fixture parent is traversable to both accounts, and records
-fixed check identifiers for protected-child directory/config/metadata read and
-write denial, undisclosed-name non-derivability, and denial of opening an
-ephemerally disclosed live semaphore. It contains no command that starts
-Acronis, changes production storage, or logs sensitive data. The token and
-semaphore name are never written to a file, placed in process arguments, or
-echoed.
-
 ## Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md). Automated tests must never contact
