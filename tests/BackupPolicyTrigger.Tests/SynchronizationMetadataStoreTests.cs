@@ -1,16 +1,22 @@
 using System.Security.AccessControl;
+using System.Security.Principal;
 using BackupPolicyTrigger;
 
 namespace BackupPolicyTrigger.Tests;
 
 public sealed class SynchronizationMetadataStoreTests : IDisposable
 {
+    private static string AdministratorSid => OperatingSystem.IsWindows()
+        ? WindowsIdentity.GetCurrent().User?.Value
+            ?? throw new InvalidOperationException("Unable to determine the current Windows identity.")
+        : "S-1-5-18";
+
     private readonly string directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
 
     [Fact]
     public void ResolveOrCreate_publishes_a_stable_128_bit_deployment_identity()
     {
-        var identity = new ProtectedStorageIdentity("S-1-5-18");
+        var identity = new ProtectedStorageIdentity(AdministratorSid);
         Directory.CreateDirectory(directory);
         var store = new SynchronizationMetadataStore(directory);
 
@@ -27,7 +33,7 @@ public sealed class SynchronizationMetadataStoreTests : IDisposable
     public async Task Concurrent_first_use_returns_one_published_identity()
     {
         Directory.CreateDirectory(directory);
-        var identity = new ProtectedStorageIdentity("S-1-5-18");
+        var identity = new ProtectedStorageIdentity(AdministratorSid);
         var identities = await Task.WhenAll(Enumerable.Range(0, 16).Select(_ =>
             Task.Run(() => new SynchronizationMetadataStore(directory).ResolveOrCreateForValidatedStorage(identity))));
 
@@ -41,7 +47,7 @@ public sealed class SynchronizationMetadataStoreTests : IDisposable
     {
         Directory.CreateDirectory(directory);
         var store = new SynchronizationMetadataStore(directory);
-        _ = store.ResolveOrCreateForValidatedStorage(new ProtectedStorageIdentity("S-1-5-18"));
+        _ = store.ResolveOrCreateForValidatedStorage(new ProtectedStorageIdentity(AdministratorSid));
 
         Assert.Throws<SynchronizationMetadataException>(() =>
             store.ResolveExisting(new ProtectedStorageIdentity("S-1-5-32-544")));
