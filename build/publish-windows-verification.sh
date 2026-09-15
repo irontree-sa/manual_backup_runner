@@ -72,6 +72,7 @@ threading_accesscontrol_version="$(dotnet msbuild "$app_project" -nologo -getPro
 global_packages="$(dotnet nuget locals global-packages --list | sed 's/^[^:]*: //')"
 runtime_package="$global_packages/microsoft.netcore.app.runtime.win-x64/$runtime_version"
 protected_data_package="$global_packages/system.security.cryptography.protecteddata/$protected_data_version"
+threading_accesscontrol_package="$global_packages/system.threading.accesscontrol/$threading_accesscontrol_version"
 
 for required in \
   "$build_root/LICENSE" \
@@ -80,7 +81,9 @@ for required in \
   "$runtime_package/LICENSE.TXT" \
   "$runtime_package/THIRD-PARTY-NOTICES.TXT" \
   "$protected_data_package/LICENSE.TXT" \
-  "$protected_data_package/THIRD-PARTY-NOTICES.TXT"
+  "$protected_data_package/THIRD-PARTY-NOTICES.TXT" \
+  "$threading_accesscontrol_package/LICENSE.TXT" \
+  "$threading_accesscontrol_package/THIRD-PARTY-NOTICES.TXT"
 do
   if [[ ! -f "$required" ]]; then
     printf 'Required release license file is missing: %s\n' "$required" >&2
@@ -99,6 +102,10 @@ cp "$protected_data_package/LICENSE.TXT" \
   "$output/PROTECTEDDATA-MIT-LICENSE.txt"
 cp "$protected_data_package/THIRD-PARTY-NOTICES.TXT" \
   "$output/PROTECTEDDATA-THIRD-PARTY-NOTICES.txt"
+cp "$threading_accesscontrol_package/LICENSE.TXT" \
+  "$output/THREADING-ACCESSCONTROL-MIT-LICENSE.txt"
+cp "$threading_accesscontrol_package/THIRD-PARTY-NOTICES.TXT" \
+  "$output/THREADING-ACCESSCONTROL-THIRD-PARTY-NOTICES.txt"
 cp "$build_root/.scratch/lab-standard-user-security.ps1" \
   "$output/lab-standard-user-security.ps1"
 cp "$build_root/.scratch/lab-standard-user-coordinator.ps1" \
@@ -122,6 +129,8 @@ printf 'source_commit=%s\nfile=BackupPolicyTrigger.exe\nsha256=%s\nfile=BackupPo
   printf 'DOTNET-RUNTIME-THIRD-PARTY-NOTICES.txt\n'
   printf 'PROTECTEDDATA-MIT-LICENSE.txt\n'
   printf 'PROTECTEDDATA-THIRD-PARTY-NOTICES.txt\n'
+  printf 'THREADING-ACCESSCONTROL-MIT-LICENSE.txt\n'
+  printf 'THREADING-ACCESSCONTROL-THIRD-PARTY-NOTICES.txt\n'
   printf 'MANIFEST.txt\n'
   printf 'PROVENANCE.txt\n'
   printf 'SHA256SUMS.txt\n'
@@ -141,6 +150,8 @@ printf 'source_commit=%s\nfile=BackupPolicyTrigger.exe\nsha256=%s\nfile=BackupPo
     DOTNET-RUNTIME-THIRD-PARTY-NOTICES.txt \
     PROTECTEDDATA-MIT-LICENSE.txt \
     PROTECTEDDATA-THIRD-PARTY-NOTICES.txt \
+    THREADING-ACCESSCONTROL-MIT-LICENSE.txt \
+    THREADING-ACCESSCONTROL-THIRD-PARTY-NOTICES.txt \
     MANIFEST.txt \
     PROVENANCE.txt \
     lab-standard-user-security.ps1 \
@@ -157,6 +168,8 @@ chmod 0644 \
   "$output/DOTNET-RUNTIME-THIRD-PARTY-NOTICES.txt" \
   "$output/PROTECTEDDATA-MIT-LICENSE.txt" \
   "$output/PROTECTEDDATA-THIRD-PARTY-NOTICES.txt" \
+  "$output/THREADING-ACCESSCONTROL-MIT-LICENSE.txt" \
+  "$output/THREADING-ACCESSCONTROL-THIRD-PARTY-NOTICES.txt" \
   "$output/MANIFEST.txt" \
   "$output/PROVENANCE.txt" \
   "$output/SHA256SUMS.txt" \

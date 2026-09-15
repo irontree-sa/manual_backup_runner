@@ -38,8 +38,9 @@ Unblock-File .\BackupPolicyTrigger.exe
 ```
 
 The hash must match exactly. `SHA256SUMS.txt` also covers the project license,
-IronTree notice, Microsoft .NET Library License, and version-matched .NET runtime and
-ProtectedData notices shipped beside the executable. This detects corruption only after the release channel
+IronTree notice, Microsoft .NET Library License, and version-matched .NET runtime,
+ProtectedData, and ThreadingAccessControl notices shipped beside the executable. This
+detects corruption only after the release channel
 and its attestation have been authenticated: an adjacent checksum cannot by itself
 prove who published the executable. The same directory also carries `PROVENANCE.txt`,
 which records the `source_commit` the executable was built from and the
@@ -197,8 +198,8 @@ executables (`BackupPolicyTrigger.exe` and
 `BackupPolicyTrigger.WindowsVerification.exe`), the two lab-gate scripts
 (`lab-standard-user-coordinator.ps1` and `lab-standard-user-security.ps1`),
 the project `LICENSE` and `NOTICE`, the Microsoft .NET Library License, the
-version-matched .NET runtime and ProtectedData license/notice companions, and
-the package metadata files `MANIFEST.txt`, `PROVENANCE.txt`, and
+version-matched .NET runtime, ProtectedData, and ThreadingAccessControl license/notice
+companions, and the package metadata files `MANIFEST.txt`, `PROVENANCE.txt`, and
 `SHA256SUMS.txt` themselves. `SHA256SUMS.txt` covers every other package member
 but not itself — the conventional self-coverage exception, since a checksum
 file cannot contain its own hash. `PROVENANCE.txt` records the `source_commit`
